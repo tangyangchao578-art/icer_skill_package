@@ -19,277 +19,579 @@ categories: verification
 - 为形式验证定义属性
 - 调试时序问题
 
-## SVA 基础
+---
 
-### 立即断言 vs 并发断言
+## 步骤 1：理解断言类型
 
-**立即断言**（组合逻辑，立即检查）：
+### 1.1 立即断言 vs 并发断言
+
+**立即断言：**
+- 在过程块中执行
+- 立即检查，不涉及时序
+- 用于检查组合逻辑
 
 ```systemverilog
-// 检查复位期间 valid 必须是低
-assert property (@(posedge clk) !i_rst_n |-> !o_valid) else begin
-  $error("Assertion failed: o_valid should be low during reset");
+// 立即断言：在过程块中
+always_comb begin
+    // 检查条件必须满足
+    assert (fifo_full || !wr_en) else
+        $error("Write when FIFO full!");
 end
 ```
 
-**并发断言**（时序属性，在时钟沿检查）：
+**并发断言：**
+- 在时钟沿检查
+- 描述时序属性
+- 用于检查协议和时序
 
 ```systemverilog
-// 请求必须在 1-10 周期内得到应答
+// 并发断言：描述时序属性
 property req_ack;
-  @(posedge clk) req ##[1:10] ack;
+    @(posedge clk) req |-> ##[1:10] ack;
 endproperty
 assert property(req_ack);
 ```
 
-## 常用断言模式（复制即用）
+### 1.2 选择断言类型
 
-### 1. 请求必须保持稳定直到应答
+| 场景 | 断言类型 | 说明 |
+|------|----------|------|
+| 检查组合逻辑条件 | 立即断言 | 立即检查 |
+| 检查协议时序 | 并发断言 | 描述时序序列 |
+| 检查状态机转换 | 并发断言 | 描述状态序列 |
+| 检查复位期间状态 | 并发断言 | 带条件禁用 |
+| 检查不变量 | 并发断言 | 始终为真的属性 |
+
+---
+
+## 步骤 2：编写基本断言
+
+### 2.1 编写简单属性
+
+**做什么：** 编写最基本的状态检查断言。
 
 ```systemverilog
+// 检查复位后状态正确
+assert property (@(posedge clk) !rst_n |-> state == ST_IDLE)
+    else $error("State not IDLE during reset");
+
+// 检查 FIFO 不空时才能读
+assert property (@(posedge clk) rd_en |-> !empty)
+    else $error("Read when FIFO empty");
+
+// 检查 FIFO 不满时才能写
+assert property (@(posedge clk) wr_en |-> !full)
+    else $error("Write when FIFO full");
+```
+
+### 2.2 使用蕴含操作符
+
+**做什么：** 使用 `|->` 和 `|=>` 描述因果关系。
+
+| 操作符 | 含义 | 示例 |
+|--------|------|------|
+| `|->` | 同一周期 | `a |-> b`：a 发生时，同一周期 b 必须为真 |
+| `|=>` | 下一周期 | `a |=> b`：a 发生后，下一周期 b 必须为真 |
+
+```systemverilog
+// 请求后必须有应答（1-10 周期）
+property req_ack;
+    @(posedge clk) req |-> ##[1:10] ack;
+endproperty
+assert property(req_ack);
+
+// 请求后下一周期开始处理
+property req_start;
+    @(posedge clk) req |=> processing;
+endproperty
+assert property(req_start);
+```
+
+### 2.3 使用序列操作符
+
+**做什么：** 使用序列操作符描述复杂时序。
+
+| 操作符 | 含义 | 示例 |
+|--------|------|------|
+| `##n` | 延迟 n 周期 | `a ##3 b`：a 后 3 周期 b |
+| `##[m:n]` | 延迟 m-n 周期范围 | `a ##[1:5] b`：a 后 1-5 周期 b |
+| `##[*]` | 延迟任意周期 | `a ##[*] b`：a 后任意周期 b |
+| `##[+]` | 延迟至少 1 周期 | `a ##[+] b`：a 后至少 1 周期 b |
+
+```systemverilog
+// 写后必须等待 2 周期才能读
+property wr_rd_delay;
+    @(posedge clk) wr_en |-> ##2 rd_en;
+endproperty
+
+// 请求后 1-10 周期必须有应答
+property req_ack_range;
+    @(posedge clk) req |-> ##[1:10] ack;
+endproperty
+
+// 开始后最终必须结束
+property start_end;
+    @(posedge clk) start |-> ##[*] done;
+endproperty
+```
+
+---
+
+## 步骤 3：编写常用断言模式
+
+### 3.1 请求-应答协议
+
+**场景：** 请求发生后必须在一定周期内得到应答。
+
+```systemverilog
+// 请求后 1-10 周期必须有应答
+property req_must_ack;
+    @(posedge clk) req |-> ##[1:10] ack;
+endproperty
+assert property(req_must_ack)
+    else $error("No ACK received within 10 cycles after REQ");
+
+// 请求必须保持直到应答
 property req_stable_until_ack;
-  @(posedge clk)
-  $rose(req) |-> req throughout (##[1:$] ack);
+    @(posedge clk) $rose(req) |-> req throughout (##[1:$] ack);
 endproperty
-assert property(req_stable_until_ack);
+assert property(req_stable_until_ack)
+    else $error("REQ must be stable until ACK");
 ```
 
-### 2. 请求发生最终必须得到应答
+### 3.2 握手协议
+
+**场景：** valid/ready 握手协议。
 
 ```systemverilog
-property req_must_respond;
-  @(posedge clk) req |-> eventually [1:20] ack;
+// valid 为高时，data 必须稳定
+property valid_data_stable;
+    @(posedge clk) valid |-> $stable(data);
 endproperty
-assert property(req_must_respond);
+assert property(valid_data_stable)
+    else $error("DATA must be stable when VALID is high");
+
+// ready 为低时，valid 不能变为高（背压）
+property backpressure;
+    @(posedge clk) !ready |-> !valid;
+endproperty
+assert property(backpressure)
+    else $error("VALID must be low when READY is low");
+
+// valid 和 ready 同时为高时，传输成功
+property handshake_success;
+    @(posedge clk) (valid && ready) |-> ##1 !valid;
+endproperty
+// 可选：取决于协议
 ```
 
-### 3. 两个信号不能同时为高（互斥）
+### 3.3 互斥检查
+
+**场景：** 两个信号不能同时为高。
 
 ```systemverilog
-property signals_exclusive;
-  @(posedge clk) not (a && b);
+// 读写不能同时发生
+property rw_exclusive;
+    @(posedge clk) not (rd_en && wr_en);
 endproperty
-assert property(signals_exclusive);
+assert property(rw_exclusive)
+    else $error("Read and Write cannot happen simultaneously");
+
+// 两个状态机不能同时活跃
+property state_mutex;
+    @(posedge clk) not (state_a_active && state_b_active);
+endproperty
+assert property(state_mutex);
 ```
 
-### 4. 输入变化后一个周期输出正确
+### 3.4 状态机转换检查
+
+**场景：** 检查状态机只能进行合法转换。
 
 ```systemverilog
-property output_correct_after_input;
-  @(posedge clk) $rose(input_valid) |-> ##1 output_data == expected_data;
+// 定义合法状态转换
+property legal_state_transition;
+    @(posedge clk)
+    state == ST_IDLE |-> ##1 state inside {ST_IDLE, ST_DATA, ST_ERROR};
 endproperty
-assert property(output_correct_after_input);
+assert property(legal_state_transition)
+    else $error("Illegal state transition from IDLE");
+
+// 不能直接从 IDLE 到 DONE
+property no_idle_to_done;
+    @(posedge clk) not (state == ST_IDLE ##1 state == ST_DONE);
+endproperty
+assert property(no_idle_to_done);
 ```
 
-### 5. 一旦 ready 为低，发送方必须停止发送
+### 3.5 FIFO 检查
+
+**场景：** FIFO 相关属性检查。
 
 ```systemverilog
-property backpressure_ok;
-  @(posedge clk) !ready |-> !valid;
+// FIFO 不满才能写
+property wr_when_not_full;
+    @(posedge clk) wr_en |-> !full;
 endproperty
-assert property(backpressure_ok);
+assert property(wr_when_not_full)
+    else $error("Write when FIFO full");
+
+// FIFO 不空才能读
+property rd_when_not_empty;
+    @(posedge clk) rd_en |-> !empty;
+endproperty
+assert property(rd_when_not_empty)
+    else $error("Read when FIFO empty");
+
+// FIFO 满时不能再写
+property no_wr_when_full;
+    @(posedge clk) full |-> !wr_en;
+endproperty
+assert property(no_wr_when_full);
 ```
 
-### 6. 跨时钟域同步检查（慢到快，两级同步）
+---
+
+## 步骤 4：处理复位
+
+### 4.1 使用 disable iff 禁用复位期间断言
+
+**做什么：** 复位期间断言不检查。
 
 ```systemverilog
-property cdc_two_flop_ok;
-  @(posedge clk_fast) $fell(async_signal) |->
-    (r1 == 1'b0) throughout (##1 r2 == 1'b1);
-endproperty
-```
-
-### 7. 总线忙一直忙到传输完成
-
-```systemverilog
-property bus_transfer_complete;
-  @(posedge clk) $rose(bus_valid) |->
-    bus_valid until & bus_complete;
-endproperty
-```
-
-### 8. 复位后所有状态正确初始化
-
-```systemverilog
+// 复位期间禁用断言
 property reset_correct;
-  @(posedge clk) !i_rst_n ##1 i_rst_n |-> (state == ST_IDLE);
+    @(posedge clk) disable iff (!rst_n)
+    !rst_n ##1 rst_n |-> state == ST_IDLE;
 endproperty
-assert property(reset_correct);
+assert property(reset_correct)
+    else $error("State not IDLE after reset");
 ```
 
-## 重置处理
+### 4.2 检查复位后状态
 
-所有断言必须正确处理重置，避免重置期间错误失败。
-
-**✅ 正确：**
+**做什么：** 检查复位释放后状态正确。
 
 ```systemverilog
-property my_prop;
-  @(posedge clk) !reset_n |-> (
-    // 只有在重置释放后才检查属性
-    !reset_n ##1 reset_n |-> property
-  );
+// 复位释放后状态必须正确
+property state_after_reset;
+    @(posedge clk)
+    !rst_n ##1 rst_n |-> (state == ST_IDLE && counter == 0);
 endproperty
+assert property(state_after_reset)
+    else $error("State not correct after reset release");
 ```
 
-或者更简洁：
+---
+
+## 步骤 5：断言放置
+
+### 5.1 放置在接口模块
+
+**做什么：** 在接口协议层放置断言，检查协议遵守。
 
 ```systemverilog
-property my_prop;
-  @(posedge clk) disable iff (!reset_n) property;
-endproperty
+module axi_interface (
+    input  wire        clk,
+    input  wire        rst_n,
+    // AXI 信号
+    input  wire [31:0] awaddr,
+    input  wire        awvalid,
+    output logic       awready,
+    // ...
+);
+    // AXI 协议断言
+
+    // AWVALID 必须保持直到 AWREADY
+    property aw_stable;
+        @(posedge clk) disable iff (!rst_n)
+        awvalid |-> awvalid throughout (##[1:$] awready);
+    endproperty
+    assert property(aw_stable);
+
+    // WVALID 必须在 AWVALID 之后或同时
+    property w_after_aw;
+        @(posedge clk) disable iff (!rst_n)
+        $rose(awvalid) |-> ##[0:$] wvalid;
+    endproperty
+    assert property(w_after_aw);
+
+    // BVALID 必须在 WVALID 和 WREADY 之后
+    property b_after_w;
+        @(posedge clk) disable iff (!rst_n)
+        (wvalid && wready) |-> ##[1:$] bvalid;
+    endproperty
+    assert property(b_after_w);
+
+endmodule
 ```
 
-`disable iff` 在重置期间禁用断言，不会报错。
+### 5.2 放置在状态机模块
 
-## 断言放置原则
-
-### ✅ 推荐放置位置
-
-- **接口模块**：接口协议断言 → 检查协议遵守
-- **状态机**：状态转换属性 → 检查不会进入非法状态
-- **跨时钟域**：同步电路属性 → 检查同步正确
-- **存储器**：访问权限检查 → 检查不会访问错误地址
-- **不变量**：设计不变量 → 一直保持真
-
-### ❌ 避免
-
-- 不要把断言综合到网表中 → 占用面积
-- 使用 `ifdef ASSERTIONS` 隔离断言
-- 只在仿真和形式验证中包含断言
+**做什么：** 检查状态机转换正确性。
 
 ```systemverilog
-`ifdef ASSERTIONS
-  // 这里放断言
-`endif
+module state_machine (
+    input  wire clk,
+    input  wire rst_n,
+    input  wire start,
+    input  wire done,
+    output logic [2:0] state
+);
+    // 状态定义
+    localparam ST_IDLE  = 3'b000;
+    localparam ST_DATA  = 3'b001;
+    localparam ST_WAIT  = 3'b010;
+    localparam ST_DONE  = 3'b011;
+    localparam ST_ERROR = 3'b100;
+
+    // 状态机逻辑
+    // ...
+
+    // 状态机断言
+
+    // IDLE 只能转换到 DATA 或 ERROR
+    property idle_transition;
+        @(posedge clk) disable iff (!rst_n)
+        state == ST_IDLE |-> ##1 state inside {ST_IDLE, ST_DATA, ST_ERROR};
+    endproperty
+    assert property(idle_transition);
+
+    // DATA 只能转换到 WAIT 或 ERROR
+    property data_transition;
+        @(posedge clk) disable iff (!rst_n)
+        state == ST_DATA |-> ##1 state inside {ST_WAIT, ST_ERROR};
+    endproperty
+    assert property(data_transition);
+
+    // 必须从 IDLE 开始
+    property start_from_idle;
+        @(posedge clk) disable iff (!rst_n)
+        $rose(start) |-> state == ST_IDLE;
+    endproperty
+    assert property(start_from_idle);
+
+endmodule
 ```
 
-## 断言覆盖率
+### 5.3 使用 cover 收集覆盖率
 
-- 必须收集断言覆盖率
-- 检查所有断言都被触发过
-- 从未触发的分析原因：
-  - 功能从来没使用 → 可以删除
-  - 测试场景不全 → 添加测试
-  - 断言永远不对 → 设计错了或者断言错了
-- 达到 100% 断言覆盖率（所有断言都触发过）
+**做什么：** 收集断言覆盖率，确保所有断言都触发过。
 
-## 形式验证应用
+```systemverilog
+// 收集断言覆盖率
+cover property (@(posedge clk) req && ack);
+cover property (@(posedge clk) fifo_full);
+cover property (@(posedge clk) state == ST_ERROR);
 
-### 适用场景
+// 收集序列覆盖率
+sequence s_req_ack;
+    @(posedge clk) req ##[1:10] ack;
+endsequence
+cover sequence(s_req_ack);
+```
 
-- **模块级属性检查**：证明属性在所有输入下都成立
-- **等价性检查**：RTL 对 RTL，修改前后功能等价
-- **协议检查**：证明接口一直遵守协议
+---
 
-### 不适用场景
+## 步骤 6：断言调试
 
-- 全芯片（容量太大，运行时间太长）
+### 6.1 使用 $display 和 $error
+
+**做什么：** 断言失败时打印详细信息。
+
+```systemverilog
+property req_ack;
+    @(posedge clk) req |-> ##[1:10] ack;
+endproperty
+
+assert property(req_ack)
+    else begin
+        $error("REQ-ACK protocol violation at time %0t", $time);
+        $display("REQ = %b, ACK = %b", req, ack);
+    end
+```
+
+### 6.2 使用 $asserton/off 控制断言
+
+**做什么：** 在特定情况下禁用断言。
+
+```systemverilog
+// 禁用所有断言
+initial begin
+    $assertoff();  // 禁用
+    // 复位期间
+    #100;
+    $asserton();   // 启用
+end
+
+// 禁用特定断言
+assert property(req_ack)
+    else $error("...");
+// 可以在仿真中禁用特定断言
+```
+
+### 6.3 查看断言覆盖率
+
+**做什么：** 检查所有断言是否都被触发过。
+
+```systemverilog
+// 在仿真结束时打印覆盖率
+final begin
+    $display("Assertion Coverage Report:");
+    // 工具特定命令
+end
+```
+
+---
+
+## 步骤 7：断言最佳实践
+
+### 7.1 断言放在哪里
+
+| 断言类型 | 放置位置 |
+|----------|----------|
+| 协议断言 | 接口模块 |
+| 状态机断言 | 状态机模块 |
+| 数据完整性断言 | 数据通路模块 |
+| 不变量断言 | 相关模块内部 |
+
+### 7.2 断言命名规范
+
+```systemverilog
+// ✅ 好：断言有有意义的名字
+assert property(req_ack)
+    else $error("...");
+// 名字自动为 req_ack
+
+// ✅ 好：属性有有意义的名字
+property p_req_must_get_ack;
+    @(posedge clk) req |-> ##[1:10] ack;
+endproperty
+assert property(p_req_must_get_ack);
+
+// ❌ 不好：断言没有名字，难调试
+assert property(@(posedge clk) req |-> ack);
+```
+
+### 7.3 断言复杂度控制
+
+**规则：** 每个断言只检查一个属性，不要过于复杂。
+
+```systemverilog
+// ❌ 不好：一个断言检查多个属性
+assert property(@(posedge clk)
+    req |-> ##[1:10] ack && data_valid && !error);
+
+// ✅ 好：分开检查
+assert property(@(posedge clk) req |-> ##[1:10] ack);
+assert property(@(posedge clk) ack |-> data_valid);
+assert property(@(posedge clk) ack |-> !error);
+```
+
+---
+
+## 步骤 8：形式验证应用
+
+### 8.1 断言用于形式验证
+
+**场景：** 使用形式验证工具证明断言在所有输入下都成立。
+
+**适用场景：**
+- 模块级属性检查
+- 协议检查
+- 等价性检查
+
+**不适用场景：**
+- 全芯片（容量太大）
 - 太复杂的设计（状态空间爆炸）
 
-### 优点
-
-- 比仿真更彻底 → 探索所有可能输入组合
-- 找到仿真很难找到的 corner case
-- 一旦证明就不用反复测试
-
-### 缺点
-
-- 运行时间长，容量限制
-- 需要写正确的属性
-- 复杂设计容易状态空间爆炸
-
-## 断言覆盖率和功能覆盖率关系
-
-- **断言覆盖率**：所有断言是否都被触发过
-- **功能覆盖率**：所有功能点是否被覆盖过
-- 两个互相补充，不是互相替代
-
-## 常见错误
-
-### ❌ 忘记处理重置
+### 8.2 形式验证断言编写要点
 
 ```systemverilog
-// 错误：重置期间也检查，会失败
-property bad_prop;
-  @(posedge clk) req |-> ##[1:10] ack;
+// 形式验证友好的断言
+// 1. 有界属性更好（##[1:10] 比 ##[*] 更好）
+// 2. 避免复杂序列组合
+// 3. 明确时钟和复位
+
+property bounded_check;
+    @(posedge clk) disable iff (!rst_n)
+    req |-> ##[1:10] ack;  // 有界，形式验证友好
 endproperty
 ```
 
-**✅ 正确：**
+---
 
-```systemverilog
-property good_prop;
-  @(posedge clk) disable iff (!i_rst_n) req |-> ##[1:10] ack;
-endproperty
-```
+## 最终检查清单
 
-### ❌ 错误的时钟事件
-
-```systemverilog
-// 错误：在 negedge 检查，但是属性用 posedge 时钟
-property wrong_clk;
-  @(negedge clk) ...
-endproperty
-```
-
-确保时钟和设计时钟沿一致。
-
-### ❌ 悬空断言没有 label
-
-给每个断言起有意义的名字，方便调试。
-
-## 检查清单
-
-添加断言后检查：
+断言添加完成后检查：
 
 - [ ] 所有接口协议都有对应的断言
-- [ ] 状态机所有合法转换都覆盖，非法状态检查
-- [ ] 断言正确禁用重置期间检查
+- [ ] 状态机所有合法转换都覆盖
+- [ ] 断言正确禁用复位期间检查
 - [ ] 断言不会增加太多仿真 overhead
 - [ ] 所有断言都被触发过（断言覆盖率）
-- [ ] 没有错误触发失败（false negative）
-- [ ] 没有遗漏应该检查的属性
+- [ ] 断言有有意义的名字
+- [ ] 断言失败时有清晰的错误信息
 
-## 优点对比仿真
-
-- 断言贴近设计，设计者最清楚设计属性
-- 属性写在设计旁边，不会过时
-- 自动检查，不需要验证工程师写检查代码
-- 形式验证可以直接使用相同断言
-- 容易发现接口违反，协议错了立刻报错
-
-## 缺点
-
-- 断言只能说"哪里错了"，不能说"哪里对了"
-- 需要设计者写出正确的属性
-- 不能发现功能遗漏，如果属性没有写就不会检查
-- 复杂断言仿真 overhead 较大
-
-## 推荐使用方式
-
-断言是对定向测试和随机测试的**补充**，不是替代：
-
-- 设计中添加断言检查协议和不变量
-- 测试平台生成激励
-- 断言自动检查，发现错误立即报错
-- 覆盖率收集确保所有断言都触发过
-
-## 工具支持
-
-- 所有主流仿真器都支持 SVA：VCS, Xcelium, Questa
-- 形式验证工具：Synopsys VC Formal, Cadence Conformal
-- 开源：Verilator 支持基本断言
+---
 
 ## 反模式（要避免）
 
-❌ **检查应该由设计保证的显而易见属性**：`addr < ADDR_MAX` → 设计已经保证，不需要断言
-❌ **太多断言影响仿真速度**：只检查关键属性，不重要的不用
-❌ **属性写得太复杂**：复杂属性容易写错，拆成多个简单属性
-❌ **忘记收集覆盖率**：不知道断言有没有被触发过
+❌ **断言过于复杂**：一个断言检查太多属性
+
+```systemverilog
+// ❌ 不好
+assert property(@(posedge clk) req |-> ack && data_valid && !error);
+
+// ✅ 好：分开
+assert property(@(posedge clk) req |-> ack);
+assert property(@(posedge clk) ack |-> data_valid);
+```
+
+❌ **忘记处理复位**：复位期间断言会失败
+
+```systemverilog
+// ❌ 不好：复位期间也检查
+assert property(@(posedge clk) state == ST_IDLE);
+
+// ✅ 好：复位期间禁用
+assert property(@(posedge clk) disable iff (!rst_n) state == ST_IDLE);
+```
+
+❌ **无界属性**：形式验证无法处理
+
+```systemverilog
+// ❌ 形式验证困难
+assert property(@(posedge clk) req |-> ##[*] ack);
+
+// ✅ 好：有界
+assert property(@(posedge clk) req |-> ##[1:100] ack);
+```
+
+❌ **没有收集覆盖率**：不知道断言是否触发
+
+```systemverilog
+// 添加 cover
+cover property (@(posedge clk) req && ack);
+```
+
+---
+
+## 工具支持
+
+| 工具 | 公司 | 用途 |
+|------|------|------|
+| VCS | Synopsys | 仿真 + 断言检查 |
+| Xcelium | Cadence | 仿真 + 断言检查 |
+| Questa | Siemens | 仿真 + 断言检查 |
+| VC Formal | Synopsys | 形式验证 |
+| JasperGold | Cadence | 形式验证 |
+| Verilator | 开源 | Lint + 基本断言 |
+
+---
 
 ## 代理协作
 
-- 使用 `verification-engineer` 代理进行验证平台开发
 - 断言补充 UVM 验证环境，不是替代
+- 使用 `verification-engineer` 代理开发验证平台
 - 形式验证使用断言后，工具自动证明属性
