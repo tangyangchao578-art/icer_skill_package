@@ -1,95 +1,70 @@
 # ICER Skill Package - 集成电路工程技能包
 
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/tangyangchao578-art/icer_skill_package)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 专为 Claude Code 打造的集成电路设计工程师技能包，覆盖从架构到流片的完整设计流程。
 
-## 简介
+## 特性
 
-ICER (Integrated Circuit Engineering Rules) 是一套为 Claude Code 准备的规则、技能和代理集合，帮助芯片设计者快速启动新项目，将 AI 编程能力融入芯片设计的各个环节。
+- 🎯 **完整覆盖**：从架构设计到流片的全流程
+- 📚 **12 个技能**：详细的步骤化工作指南
+- 🤖 **10 个代理**：对应芯片设计各角色
+- 📝 **示例代码**：RTL、UVM、EDA 脚本模板
+- 📖 **命令速查**：常用 EDA 工具命令参考
+- ✅ **检查清单**：代码审查、流片检查清单
+- 🔧 **工具支持**：商业工具 + 开源工具
 
-## 功能覆盖
+## 快速开始
 
-| 领域 | 说明 |
-|------|------|
-| 芯片架构 | 架构定义、模块划分、接口设计 |
-| 前端设计 | RTL 编码、可综合设计、重构优化 |
-| 前端验证 | UVM 验证、断言验证、覆盖率收集 |
-| 中端 | 逻辑综合、映射、DFT |
-| 后端设计 | 布局布线、时序收敛、DRC/LVS |
-| 板级验证 | 原型验证、硬件 bring-up、调试 |
-| 功能安全 | ISO 26262、ASIL、FMEDA、安全机制 |
-
-## 支持工具
-
-同时涵盖主流开源和商业 EDA 工具：
-
-**开源工具：**
-- Yosys - 逻辑综合
-- Verilator - 仿真
-- SymbiFlow - 布局布线
-- GHDL - VHDL 仿真
-- OpenLANE - 开源 RTL-to-GDS 流程
-
-**商业工具：**
-- Synopsys Design Compiler/IC Compiler
-- Cadence Innovus/Genus
-- Siemens EDA Veloce/Questa
-- Synopsys VCS/SpyGlass
-- Cadence Xcelium
-
-## 安装
-
-### 方法一：全自动安装
+### 安装
 
 ```bash
+# 克隆仓库
 git clone https://github.com/tangyangchao578-art/icer_skill_package.git
 cd icer_skill_package
+
+# 完整安装
 ./install.sh all
+
+# 或部分安装
+./install.sh rules     # 仅安装规则
+./install.sh skills    # 仅安装技能
+./install.sh agents    # 仅安装代理
+./install.sh examples  # 仅安装示例代码
 ```
 
-### 方法二：部分安装
+### 验证安装
 
 ```bash
-# 只安装规则
-./install.sh rules
-
-# 只安装技能
-./install.sh skills
-
-# 只安装代理
-./install.sh agents
+./install.sh verify
 ```
 
-### 手动安装
-
-```bash
-# 安装规则
-cp -r rules/* ~/.claude/rules/
-
-# 安装技能
-cp -r skills/* ~/.claude/skills/
-
-# 安装代理
-cp -r agents/* ~/.claude/agents/
-```
-
-## 使用方法
+### 使用
 
 安装后，Claude Code 会自动加载规则。在项目中你可以：
 
-- **使用技能：** `/skill rtl-coding` 启用 RTL 编码技能
-- **使用代理：** `/agent rtl-designer` 让 RTL 设计师代理帮你工作
-- **规则：** 规则会自动应用于所有对话，确保编码和设计符合芯片设计最佳实践
+```bash
+# 使用技能
+/skill rtl-coding
+
+# 使用代理
+/agent rtl-designer
+
+# 查看帮助
+./install.sh help
+```
 
 ## 目录结构
 
 ```
 icer_skill_package/
 ├── README.md
-├── install.sh
-├── rules/
-│   ├── common/          # 通用原则
-│   └── ic/              # IC 特定扩展
-├── skills/              # 12 个专项技能
+├── install.sh              # 增强安装脚本
+├── rules/                  # 规则 (21 个文件)
+│   ├── common/             # 通用原则
+│   └── ic/                 # IC 特定扩展
+├── skills/                 # 技能 (12 个)
 │   ├── architecture-design/
 │   ├── rtl-coding/
 │   ├── systemverilog/
@@ -102,22 +77,28 @@ icer_skill_package/
 │   ├── board-bringup/
 │   ├── eda-scripting/
 │   └── drc-lvs-debug/
-└── agents/              # 10 个角色代理
-    ├── chip-architect/            # 芯片架构师
-    ├── rtl-designer/              # RTL 设计师
-    ├── verification-engineer/     # 验证工程师
-    ├── physical-design-engineer/  # 物理设计工程师
-    ├── timing-engineer/           # 时序工程师
-    ├── power-engineer/            # 功耗工程师
-    ├── functional-safety-engineer/# 功能安全工程师
-    ├── validation-engineer/       # 板级验证工程师
-    ├── drc-engineer/              # DRC 工程师
-    └── eda-automation-engineer/   # EDA 自动化工程师
+├── agents/                 # 代理 (10 个)
+│   ├── chip-architect/
+│   ├── rtl-designer/
+│   ├── verification-engineer/
+│   ├── physical-design-engineer/
+│   ├── timing-engineer/
+│   ├── power-engineer/
+│   ├── functional-safety-engineer/
+│   ├── validation-engineer/
+│   ├── drc-engineer/
+│   └── eda-automation-engineer/
+├── examples/               # 示例代码
+│   ├── rtl/                # RTL 模板
+│   ├── uvm/                # UVM 模板
+│   ├── scripts/            # EDA 脚本
+│   └── constraints/        # 约束文件
+└── references/             # 参考文档
+    ├── tool_commands/      # 工具命令速查
+    └── checklists/         # 检查清单
 ```
 
 ## 技能列表
-
-每个技能都包含详细的工作步骤：
 
 | 技能 | 步骤数 | 描述 |
 |------|--------|------|
@@ -136,8 +117,6 @@ icer_skill_package/
 
 ## 代理列表
 
-每个代理对应特定技能，明确职责和协作关系：
-
 | 代理 | 对应技能 | 职责 |
 |------|----------|------|
 | chip-architect | architecture-design | 架构设计、模块划分、接口定义 |
@@ -150,6 +129,96 @@ icer_skill_package/
 | validation-engineer | board-bringup | 板级验证、bring-up、调试 |
 | drc-engineer | drc-lvs-debug | DRC/LVS 调试修复 |
 | eda-automation-engineer | eda-scripting | 流程脚本、自动化 |
+
+## 示例代码
+
+### RTL 模板
+
+- `async_fifo.sv` - 异步 FIFO 完整实现
+- `clock_gate.sv` - 门控时钟单元
+- `cdc_synchronizer.sv` - 跨时钟域同步器
+
+### UVM 模板
+
+- `tb_top.sv` - 测试平台顶层
+- `base_test.sv` - 基础测试类
+
+### EDA 脚本
+
+- `dc_synthesis.tcl` - Design Compiler 综合脚本
+- `pt_sta.tcl` - PrimeTime 静态时序分析脚本
+- `innovus_flow.tcl` - Innovus 物理设计流程
+
+### 约束文件
+
+- `timing.sdc` - 时序约束模板
+
+## 参考文档
+
+### 工具命令速查
+
+- `design_compiler.md` - DC 命令速查
+- `prime_time.md` - PT 命令速查
+
+### 检查清单
+
+- `rtl_review.md` - RTL 代码审查清单
+- `tapeout_checklist.md` - 流片检查清单
+
+## 支持工具
+
+### 商业工具
+
+| 类别 | 工具 |
+|------|------|
+| 综合 | Synopsys Design Compiler, Cadence Genus |
+| 物理设计 | Synopsys IC Compiler II, Cadence Innovus |
+| 时序分析 | Synopsys PrimeTime, Cadence Tempus |
+| 物理验证 | Siemens Calibre, Synopsys ICV, Cadence PVS |
+| 仿真 | Synopsys VCS, Cadence Xcelium, Siemens Questa |
+| 功耗分析 | Synopsys PrimePower, Cadence Voltus, ANSYS RedHawk |
+
+### 开源工具
+
+| 类别 | 工具 |
+|------|------|
+| 综合 | Yosys |
+| 仿真 | Verilator, GHDL, Icarus Verilog |
+| 物理设计 | OpenROAD |
+| 时序分析 | OpenSTA |
+| 完整流程 | OpenLANE |
+
+## 安装命令
+
+```bash
+# 查看帮助
+./install.sh help
+
+# 完整安装
+./install.sh all
+
+# 部分安装
+./install.sh rules      # 仅规则
+./install.sh skills     # 仅技能
+./install.sh agents     # 仅代理
+./install.sh examples   # 仅示例
+./install.sh references # 仅参考
+
+# 管理命令
+./install.sh update     # 更新
+./install.sh uninstall  # 卸载
+./install.sh verify     # 验证安装
+./install.sh version    # 显示版本
+```
+
+## 规则说明
+
+规则采用分层结构：
+
+1. **common/** - 通用原则，定义每个领域"应该做什么"
+2. **ic/** - IC 特定扩展，覆盖集成电路的具体要求
+
+遵循与 Claude Code 默认规则相同的约定，可以无缝集成。
 
 ## Agent 与 Skill 关系
 
@@ -169,14 +238,66 @@ drc-engineer           → drc-lvs-debug
 eda-automation-engineer → eda-scripting
 ```
 
-## 规则说明
+## 快速入门示例
 
-规则采用分层结构：
+### RTL 编码
 
-1. **common/** - 通用原则，定义每个领域"应该做什么"
-2. **ic/** - IC 特定扩展，覆盖集成电路的具体要求，覆盖通用规则
+```
+用户: 我需要设计一个异步 FIFO
+Claude: /skill rtl-coding
+        /agent rtl-designer
+        
+        我将帮你设计异步 FIFO。根据 RTL 编码技能的步骤：
+        1. 首先创建模块骨架...
+        2. 定义信号和参数...
+        参考 examples/rtl/async_fifo.sv 模板
+```
 
-遵循与 Claude Code 默认规则相同的约定，可以无缝集成。
+### 物理设计
+
+```
+用户: 如何进行布局布线？
+Claude: /skill physical-design
+        /agent physical-design-engineer
+        
+        我将指导你完成物理设计流程：
+        1. Floorplan - 设置芯片面积和 IO...
+        2. Placement - 全局布局和详细布局...
+        参考 examples/scripts/pd/innovus_flow.tcl
+```
+
+### 时序分析
+
+```
+用户: 如何做静态时序分析？
+Claude: /skill timing-analysis
+        /agent timing-engineer
+        
+        静态时序分析步骤：
+        1. 理解时序概念（建立/保持时间）...
+        2. 运行时序分析...
+        参考 examples/scripts/sta/pt_sta.tcl
+```
+
+## 更新日志
+
+### v1.1.0
+
+- ✨ 新增示例代码目录 (examples/)
+- ✨ 新增参考文档目录 (references/)
+- 📝 增强 physical-design 技能 (TCL 命令、流程详解)
+- 📝 增强 power-analysis 技能 (IR 降、EM 分析)
+- 📝 增强 drc-lvs-debug 技能 (Calibre 命令、Waiver 模板)
+- 🔧 增强安装脚本 (版本管理、更新、卸载、验证)
+- 📖 新增工具命令速查 (DC、PT)
+- ✅ 新增检查清单 (RTL 审查、流片检查)
+
+### v1.0.0
+
+- 🎉 初始版本
+- 📚 12 个技能
+- 🤖 10 个代理
+- 📝 21 个规则文件
 
 ## 贡献
 

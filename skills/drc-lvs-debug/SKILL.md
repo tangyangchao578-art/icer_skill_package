@@ -80,6 +80,130 @@ categories: back-end
 - 确认修复没有引入新的违反
 - 记录修复方法
 
+### Calibre DRC 命令行操作
+
+```tcl
+# ============================================
+# Calibre DRC 运行命令
+# ============================================
+
+# 基本运行命令
+calibre -drc -hier design.gds
+
+# 使用规则文件
+calibre -drc -rules drc_rules.cal design.gds
+
+# 指定输出文件
+calibre -drc -rules drc_rules.cal \
+        -hier design.gds \
+        -turbo 4 \
+        -drc_results design.drc.results
+
+# 查看结果
+# 生成 SVRF 数据库
+calibre -drc -rules drc_rules.cal \
+        -hier design.gds \
+        -drc_report design.drc.rpt \
+        -drc_db design.drc.db
+
+# 导出错误位置
+calibre -drc -rules drc_rules.cal \
+        -hier design.gds \
+        -drc_export gdsii design.drc.export.gds
+```
+
+### Calibre DRC 规则文件示例
+
+```tcl
+# ============================================
+# Calibre DRC 规则文件示例 (SVRF 格式)
+# ============================================
+
+// 层定义
+LAYER MAP 1 DATATYPE 0 1      // Metal1
+LAYER MAP 2 DATATYPE 0 2      // Metal2
+LAYER MAP 3 DATATYPE 0 3      // Via1
+
+// 最小间距规则
+Metal1_SPACING = 0.14
+Metal2_SPACING = 0.14
+
+// 金属层最小宽度
+Metal1_WIDTH = 0.14
+Metal2_WIDTH = 0.14
+
+// DRC 检查
+// Metal1 最小间距
+M1_SPACING = SPACING M1 < Metal1_SPACING
+
+// Metal1 最小宽度
+M1_WIDTH = WIDTH M1 < Metal1_WIDTH
+
+// 密度检查
+M1_DENSITY = DENSITY M1 0.2 0.8
+
+// 天线规则
+ANTENNA_RATIO = 500
+ANTENNA_CHECK = ANTENNA M1 GATE < ANTENNA_RATIO
+
+// 输出结果
+DRC CHECK MAP M1_SPACING 1
+DRC CHECK MAP M1_WIDTH 2
+DRC CHECK MAP M1_DENSITY 3
+DRC CHECK MAP ANTENNA_CHECK 4
+```
+
+### Innovus DRC 检查
+
+```tcl
+# ============================================
+# Innovus DRC 流程
+# ============================================
+
+# 运行 DRC
+verifyGeometry
+
+# 检查特定层
+verifyGeometry -layer M1
+
+# 检查天线
+verifyAntenna
+
+# 导出 DRC 报告
+report_drc -out_file drc_report.rpt
+
+# 查看特定类型的违规
+report_drc -type spacing
+report_drc -type width
+report_drc -type density
+```
+
+### ICC2 DRC 检查
+
+```tcl
+# ============================================
+# ICC2 DRC 流程
+# ============================================
+
+# 运行 DRC
+verify_drc
+
+# 检查特定层
+verify_drc -layers {M1 M2 M3}
+
+# 检查天线
+verify_antenna
+
+# 导出报告
+report_drc -out_file drc_report.rpt
+
+# 查看 DRC 违规数量
+report_drc -summary
+
+# 查看特定类型的违规
+report_drc -type spacing -max 100
+```
+
 ## 常见 DRC 问题定位和修复
 
 ### 问题 1：天线效应违反
@@ -131,6 +255,117 @@ categories: back-end
 ## LVS 调试流程
 
 **LVS = 版图 vs 原理图比对** → 检查版图和网表是否一致
+
+### Calibre LVS 命令行操作
+
+```tcl
+# ============================================
+# Calibre LVS 运行命令
+# ============================================
+
+# 基本 LVS 运行
+calibre -lvs -hier design.gds netlist.v
+
+# 使用规则文件
+calibre -lvs -rules lvs_rules.cal design.gds netlist.v
+
+# 指定输出
+calibre -lvs -rules lvs_rules.cal \
+        -hier design.gds netlist.v \
+        -lvs_report design.lvs.rpt \
+        -lvs_db design.lvs.db
+
+# 查看结果
+calibredrv design.lvs.db
+```
+
+### Calibre LVS 规则文件示例
+
+```tcl
+# ============================================
+# Calibre LVS 规则文件示例 (SVRF 格式)
+# ============================================
+
+// 层定义
+LAYER MAP 1 DATATYPE 0 1      // Diffusion
+LAYER MAP 2 DATATYPE 0 2      // Poly
+LAYER MAP 3 DATATYPE 0 3      // Metal1
+LAYER MAP 4 DATATYPE 0 4      // Contact
+
+// 器件定义
+// NMOS 定义
+NMOS = MOS LAYER DIFF POLY MODEL NMOS
+
+// PMOS 定义
+PMOS = MOS LAYER DIFF POLY MODEL PMOS
+
+// 连接定义
+// 多晶硅和扩散区的接触
+CONNECT POLY CONTACT
+CONNECT DIFF CONTACT
+CONNECT M1 CONTACT
+
+// 端口定义
+PORT M1 TEXT 1
+
+// LVS 检查
+LVS CHECK NMOS
+LVS CHECK PMOS
+LVS CHECK SHORT
+LVS CHECK OPEN
+
+// 输出
+LVS REPORT design.lvs.rpt
+```
+
+### Innovus LVS 检查
+
+```tcl
+# ============================================
+# Innovus LVS 流程
+# ============================================
+
+# 导出网表
+saveNetlist -excludeLeafCells design.v
+
+# 导出 DEF
+defOut design.def
+
+# 导出 GDS
+streamOut design.gds
+
+# 运行 LVS（需要 Calibre 或其他工具）
+# 外部运行 Calibre LVS
+
+# 或使用内置检查
+verifyConnectivity -type all
+```
+
+### ICC2 LVS 检查
+
+```tcl
+# ============================================
+# ICC2 LVS 流程
+# ============================================
+
+# 导出网表
+write_verilog -exclude {leaf_cells} design.v
+
+# 导出 DEF
+write_def design.def
+
+# 导出 GDS
+write_stream design.gds
+
+# 连接性检查
+verify_lvs -report_file lvs_report.rpt
+
+# 检查未连接端口
+verify_connectivity -unconnected
+
+# 检查短路
+verify_connectivity -short
+```
 
 ### 常见 LVS 违反
 
@@ -185,6 +420,83 @@ categories: back-end
 - 未使用输入 → 绑定到 VDD 或 GND
 - 浮动节点 → 如果真的不用，可以留下，否则连接
 - 短路 → 找到短路位置重新走线
+
+## Waiver 文档模板
+
+当遇到无法修复的 DRC/LVS 违规时，需要提交 Waiver 申请。
+
+### Waiver 申请模板
+
+```markdown
+# DRC/LVS Waiver 申请表
+
+## 基本信息
+- **项目名称**: [项目名称]
+- **Waiver 编号**: WA-[年份]-[序号]
+- **申请人**: [姓名]
+- **申请日期**: [日期]
+
+## 违规信息
+- **违规类型**: [DRC/LVS]
+- **违规代码**: [规则名称]
+- **违规位置**: [坐标/模块名称]
+- **违规数量**: [数量]
+- **发现工具**: [Calibre/ICV/PVS]
+
+## 违规描述
+[详细描述违规的具体情况]
+
+## 原因分析
+[分析为什么会出现这个违规]
+
+## 影响评估
+1. **功能影响**: [是否影响功能]
+2. **可靠性影响**: [是否影响可靠性]
+3. **良率影响**: [预计对良率的影响]
+
+## 解决方案
+- [ ] 已尝试修复，但无法修复
+- [ ] 修复成本过高
+- [ ] 设计限制，无法修复
+- [ ] 其他: [说明]
+
+## 安全证明
+[提供理论分析或仿真证明，说明此违规不会影响芯片正常工作]
+
+## 审批记录
+| 角色 | 姓名 | 日期 | 结果 |
+|------|------|------|------|
+| 设计工程师 | | | |
+| 物理设计工程师 | | | |
+| DRC 工程师 | | | |
+| 项目经理 | | | |
+| Foundry 代表 | | | |
+
+## 附件
+- [ ] 违规截图
+- [ ] 分析报告
+- [ ] 仿真结果（如适用）
+```
+
+### Waiver 评估标准
+
+| 风险等级 | 说明 | Waiver 可能性 |
+|----------|------|---------------|
+| 高 | 影响功能或可靠性 | 不允许 |
+| 中 | 可能影响良率 | 需要充分证明 |
+| 低 | 不影响功能和良率 | 允许 |
+
+### 常见可接受的 Waiver
+
+1. **密度违规边界**：芯片边缘密度略低
+2. **天线轻微违规**：电荷积累量很小
+3. **金属填充密度**：局部区域略高
+
+### 常见不可接受的 Waiver
+
+1. **短路**：任何短路都不允许
+2. **最小间距严重违规**：可能导致制造失败
+3. **电源网络开路**：影响供电
 
 ## 调试技巧
 

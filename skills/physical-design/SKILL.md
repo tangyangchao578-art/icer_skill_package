@@ -64,6 +64,167 @@ categories: back-end
 - 时钟模块放在芯片中心方便分发
 - 电源 pad 均匀分布，减少 IR 降
 
+### Floorplan 详细流程与命令
+
+#### ICC2 Floorplan 命令
+
+```tcl
+# ============================================
+# 1. 创建 Floorplan
+# ============================================
+
+# 设置芯片尺寸和核心区域
+initialize_floorplan -core_utilization 0.7 \
+                     -core_aspect_ratio 1.0 \
+                     -core_margins {{left 10} {right 10} {top 10} {bottom 10}}
+
+# 或者直接指定尺寸
+initialize_floorplan -core_area {0 0 1000 1000}
+
+# ============================================
+# 2. IO 摆放
+# ============================================
+
+# 自动摆放 IO
+place_pins -self
+
+# 手动摆放 IO
+set_pin_physical_constraint -pins {pin_name} -layers {M4} -sides {1}
+
+# 按约束文件摆放
+read_io_constraints io_constraints.iof
+
+# ============================================
+# 3. 电源环创建
+# ============================================
+
+# 创建电源环
+create_pg_ring_pattern ring_pattern \
+    -horizontal_layer M8 \
+    -vertical_layer M9 \
+    -horizontal_width {2.0} \
+    -vertical_width {2.0} \
+    -horizontal_spacing {0.5} \
+    -vertical_spacing {0.5}
+
+set_pg_strategy ring_strategy \
+    -pattern {{name: ring_pattern} {nets: {VDD VSS}} \
+    -core_offset {{inter_semiconductor_space: 1.0}}}
+
+create_pg_mesh_region ring_strategy
+
+# ============================================
+# 4. 电源带创建
+# ============================================
+
+# 创建电源带
+create_pg_mesh_pattern mesh_pattern \
+    -horizontal_layer M6 \
+    -vertical_layer M7 \
+    -horizontal_width {0.5} \
+    -vertical_width {0.5} \
+    -horizontal_pitch {50} \
+    -vertical_pitch {50}
+
+# ============================================
+# 5. Hard Macro 摆放
+# ============================================
+
+# 设置 Macro 约束
+set_macro_constraint -allowed_orientations {R0 R180 MX MY}
+
+# 手动摆放 Macro
+place_cell -inst_name macro_inst1 -location {100 200} -orientation R0
+
+# 自动摆放 Macro
+place_macros
+
+# 设置 Macro Keepout
+create_keepout_margin -type hard -outer {5 5 5 5} macro_inst1
+```
+
+#### Innovus Floorplan 命令
+
+```tcl
+# ============================================
+# Innovus Floorplan 流程
+# ============================================
+
+# 设置设计
+loadDesign design.dc
+
+# 创建 floorplan
+floorPlan -coreUtilization 0.7 \
+          -coreAspect 1.0 \
+          -coreMargin 10
+
+# 或者指定尺寸
+floorPlan -site core -d 1000 1000 10 10 10 10
+
+# IO 摆放
+loadIoFile io_constraints.iof
+
+# 创建电源环
+addRing -nets {VDD VSS} \
+        -layer {top M8 bottom M8 left M9 right M9} \
+        -width 2.0 \
+        -spacing 0.5 \
+        -offset 1.0
+
+# 创建电源带
+addStripe -nets {VDD VSS} \
+          -layer M6 \
+          -direction horizontal \
+          -width 0.5 \
+          -spacing 0.5 \
+          -set_to_set_distance 50
+
+# Macro 摆放
+placeInstance macro_inst1 100 200 R0
+
+# 创建 blockage
+createPlaceBlockage -type hard -boundary {{0 0} {100 100}}
+```
+
+#### OpenROAD Floorplan 命令
+
+```tcl
+# ============================================
+# OpenROAD Floorplan 流程
+# ============================================
+
+# 初始化 floorplan
+initialize_floorplan -utilization 0.7 \
+                     -aspect_ratio 1.0 \
+                     -core_space 10
+
+# IO 摆放
+place_pins -hor_layers M4 -ver_layers M3
+
+# 创建电源网格
+add_global_connection -net VDD -pin_pattern {VDD} -power
+add_global_connection -net VSS -pin_pattern {VSS} -ground
+
+# 电源网格定义
+define_pdng_grid -name grid1 \
+                 -starts_with POWER \
+                 -layers {M8 M9} \
+                 -widths 2.0 \
+                 -pitches 100
+
+# Macro 摆放
+place_macro -macro_name macro_inst1 -x 100 -y 200 -orientation R0
+```
+
+#### Floorplan 常见问题与解决
+
+| 问题 | 原因 | 解决方法 |
+|------|------|----------|
+| 面积过大 | 利用率设置过低 | 提高利用率，重新规划 |
+| 拥塞严重 | Macro 摆放过密 | 调整 Macro 间距，增加通道 |
+| IR 降过大 | 电源网格不足 | 增加电源带宽，减少间距 |
+| 时序不收敛 | Macro 位置不合理 | 根据 dataflow 重新摆放 |
+
 ---
 
 ### 阶段 3：Placement
@@ -87,6 +248,112 @@ categories: back-end
 - 给大总线留出专用通道
 - 分解超大模块为多个小模块
 - 降低局部模块密度，留出空间
+
+### Placement 详细流程与命令
+
+#### ICC2 Placement 命令
+
+```tcl
+# ============================================
+# 1. 全局 Placement
+# ============================================
+
+# 设置 placement 目标
+set_placement_spacing_label -name S -side both -lib_cells [get_lib_cells]
+
+# 运行全局 placement
+place_opt -from initial
+
+# 或者分步执行
+legalize_placement -incremental
+
+# ============================================
+# 2. 拥塞分析
+# ============================================
+
+# 检查拥塞
+report_congestion
+
+# 查看详细拥塞
+report_congestion -layers {M1 M2 M3 M4 M5 M6}
+
+# 生成拥塞热点报告
+report_congestion -hotspot
+
+# ============================================
+# 3. 拥塞优化
+# ============================================
+
+# 如果拥塞严重，增加目标密度
+set_placement_spacing_label -name S -side both -lib_cells [get_lib_cells]
+set_placement_density_limit 0.75
+
+# 拥塞驱动的 placement
+place_opt -congestion_effort high
+
+# 使用 padding 缓解拥塞
+set_placement_padding -global -left 2 -right 2
+
+# ============================================
+# 4. 时序驱动 Placement
+# ============================================
+
+# 使能时序优化
+set_optimize_effort -high
+
+# 运行时序驱动的 placement
+place_opt -from initial -timing_effort high
+
+# 检查初始时序
+report_timing -max_paths 10
+```
+
+#### Innovus Placement 命令
+
+```tcl
+# ============================================
+# Innovus Placement 流程
+# ============================================
+
+# 全局 placement
+placeDesign -inplace_opt
+
+# 拥塞分析
+routeDesign -globalDetailRoute -congestionMapOnly
+
+# 查看拥塞
+encounter 13> win select CongestionViewer
+encounter 14> congestionViewer -showCongestion
+
+# 拥塞优化
+setPlaceMode -timingDriven true -congestion true
+placeDesign
+
+# 时序检查
+reportTiming
+
+# 优化 placement
+optDesign -preCTS
+```
+
+#### Placement 检查清单
+
+| 检查项 | 目标值 | 检查方法 |
+|--------|--------|----------|
+| 全局拥塞 | < 5% | report_congestion |
+| 局部拥塞 | < 80% | report_congestion -hotspot |
+| 初始 WNS | > -500ps | report_timing |
+| 最大线长 | 合理范围 | report_net_lengths |
+| 单元密度 | < 85% | report_design_density |
+
+#### Placement 常见问题与解决
+
+| 问题 | 现象 | 解决方法 |
+|------|------|----------|
+| 拥塞热点 | 局部密度 > 90% | 增加 padding，调整 Macro 位置 |
+| 时序差 | WNS < -1ns | 使能 timing-driven placement |
+| 线长过长 | 关键路径延迟大 | 调整权重，优化关键路径摆放 |
+| 重叠 | 单元重叠 | 运行 legalize_placement |
 
 ---
 
@@ -121,6 +388,120 @@ categories: back-end
 - 门控时钟正确识别，不要缓冲门控输出
 - 使用有用skew优化改善时序
 
+### CTS 详细流程与命令
+
+#### ICC2 CTS 命令
+
+```tcl
+# ============================================
+# 1. 时钟树设置
+# ============================================
+
+# 定义时钟
+create_clock -name clk -period 10 [get_ports clk]
+
+# 设置时钟树目标
+set_clock_tree_options -target_skew 0.1
+set_clock_tree_options -target_max_latency 2.0
+set_clock_tree_options -target_min_latency 0.5
+
+# 设置时钟树约束
+set_clock_tree_constraints -max_transition 0.2
+set_clock_tree_constraints -max_capacitance 0.5
+
+# ============================================
+# 2. 时钟树综合
+# ============================================
+
+# 综合时钟树
+clock_tree_synthesis
+
+# 或者使用 opt 设计
+compile_clock_tree
+
+# ============================================
+# 3. 时钟树分析
+# ============================================
+
+# 报告时钟树状态
+report_clock_tree -status
+
+# 报告时钟 skew
+report_clock_tree -skew
+
+# 报告时钟 latency
+report_clock_tree -latency
+
+# 详细报告
+report_clock_timing -type summary
+
+# ============================================
+# 4. 时钟树优化
+# ============================================
+
+# skew 优化
+optimize_clock_tree -skew
+
+# power 优化
+optimize_clock_tree -power
+
+# latency 优化
+optimize_clock_tree -latency
+
+# ============================================
+# 5. 时钟树验证
+# ============================================
+
+# 检查时钟树
+check_clock_tree
+
+# 验证时钟网络
+verify_clock_tree
+```
+
+#### Innovus CTS 命令
+
+```tcl
+# ============================================
+# Innovus CTS 流程
+# ============================================
+
+# 创建时钟
+createClock -name clk -period 10 [getPorts clk]
+
+# 设置 CTS 目标
+setCCOptTarget -skew 0.1
+setCCOptTarget -maxLatency 2.0
+
+# 运行 CTS
+ccopt_design
+
+# 分析时钟树
+report_ccopt_clock_trees
+
+# 验证
+verifyClockNets
+```
+
+#### CTS 时钟树质量指标
+
+| 指标 | 定义 | 目标值 |
+|------|------|--------|
+| Clock Skew | 同一时钟域内时钟到达时间差 | < 100ps (先进工艺) |
+| Clock Latency | 时钟从源到寄存器的延迟 | 满足设计约束 |
+| Insertion Delay | 时钟树插入延迟 | 越小越好，但需平衡 |
+| Transition Time | 时钟信号转换时间 | < 最大允许值 |
+| Clock Power | 时钟网络功耗 | 在预算内 |
+
+#### CTS 常见问题与解决
+
+| 问题 | 原因 | 解决方法 |
+|------|------|----------|
+| Skew 过大 | 时钟树不平衡 | 增加平衡 buffer，调整树结构 |
+| Latency 过大 | 时钟树级数太多 | 减少级数，使用更大驱动 |
+| 功耗过大 | 时钟网络负载大 | 使用门控时钟，减少翻转 |
+| Transition 过大 | 驱动能力不足 | 增加 buffer，使用更大驱动 |
+
 ---
 
 ### 阶段 5：Routing
@@ -143,6 +524,108 @@ categories: back-end
 - **布线失败**：局部拥塞 → 重新摆放模块增加通道
 - **天线违反**：跳线到上层，或者插入天线二极管
 - **短路**：检查重叠过孔，检查间距
+
+### Routing 详细流程与命令
+
+#### ICC2 Routing 命令
+
+```tcl
+# ============================================
+# 1. 全局布线
+# ============================================
+
+# 检查布线拥塞
+report_route_quality
+
+# 设置布线层约束
+set_ignored_layers -min_layer M1 -max_layer M8
+
+# 全局布线
+route_global
+
+# ============================================
+# 2. 详细布线
+# ============================================
+
+# 运行详细布线
+route_auto
+
+# 或分步执行
+route_track
+route_detail
+
+# ============================================
+# 3. 天线修复
+# ============================================
+
+# 检查天线违反
+report_antenna_violations
+
+# 自动修复天线违反
+route_opt -repair_antenna
+
+# 插入天线二极管
+insert_antenna_diodes -all
+
+# ============================================
+# 4. 布线优化
+# ============================================
+
+# 优化布线
+route_opt -size_only
+
+# 修布线 DRC
+route_opt -drc_effort high
+
+# ============================================
+# 5. 布线验证
+# ============================================
+
+# 检查布线完成度
+report_route_status
+
+# 检查未布线网络
+report_unconnected_nets
+
+# 检查短路和开路
+verify_routing
+```
+
+#### Innovus Routing 命令
+
+```tcl
+# ============================================
+# Innovus Routing 流程
+# ============================================
+
+# 设置布线层
+setNanoRouteMode -drouteMinLayer M1
+setNanoRouteMode -drouteMaxLayer M8
+
+# 全局布线
+globalDetailRoute
+
+# 详细布线
+detailRoute
+
+# 天线修复
+setNanoRouteMode -drouteFixAntenna true
+routeDesign
+
+# 检查布线
+verifyConnectivity
+verifyGeometry
+```
+
+#### Routing 检查清单
+
+| 检查项 | 目标 | 命令 |
+|--------|------|------|
+| 布线完成率 | 100% | report_route_status |
+| 天线违反 | 0 | report_antenna_violations |
+| 短路 | 0 | verify_routing |
+| 开路 | 0 | verify_routing |
+| DRC 违反 | 0 | verify_geometry |
 
 ---
 
@@ -169,6 +652,138 @@ categories: back-end
 - [ ] 没有最大转换时间违反
 - [ ] 没有最大电容负载违反
 - [ ] OCV 分析满足要求
+
+### Timing Closure 详细流程与命令
+
+#### ICC2 时序优化命令
+
+```tcl
+# ============================================
+# 1. 时序分析
+# ============================================
+
+# 基本时序报告
+report_timing -max_paths 10
+
+# 详细时序报告
+report_timing -max_paths 10 -delay_type max -input_pins -nets -caps
+
+# 建立/保持时间报告
+report_timing -delay_type max -max_paths 10  # 建立
+report_timing -delay_type min -max_paths 10  # 保持
+
+# 报告 WNS/TNS
+report_timing -summary
+
+# ============================================
+# 2. 修复建立时间违例
+# ============================================
+
+# 自动优化
+opt_design -post_route
+
+# 具体优化策略
+# 2.1 增加驱动
+size_cell -cell_name <cell> -new_cell <larger_cell>
+
+# 2.2 复制高扇出
+clone_cell -cell_name <cell>
+
+# 2.3 重新摆放关键路径
+place_opt -timing_effort high -critical_path_endpoints
+
+# 2.4 有用偏斜
+set_clock_latency -max 0.2 [get_clocks clk] -source
+set_clock_latency -min 0.1 [get_clocks clk] -source
+
+# ============================================
+# 3. 修复保持时间违例
+# ============================================
+
+# 自动修复
+opt_design -post_route -hold
+
+# 插入延迟单元
+insert_buffer -cell_name <buffer_cell> -net <net_name>
+
+# 调整驱动大小（用更小驱动）
+size_cell -cell_name <cell> -new_cell <smaller_cell>
+
+# ============================================
+# 4. 多工艺角分析
+# ============================================
+
+# 设置工艺角
+set_operating_conditions -analysis_type on_chip_variation
+
+# 运行多工艺角分析
+report_timing -corners {ss ff tt}
+
+# OCV 分析
+set_timing_derate -early 0.9 -cell_delay
+set_timing_derate -late 1.1 -cell_delay
+report_timing -max_paths 10
+```
+
+#### Innovus 时序优化命令
+
+```tcl
+# ============================================
+# Innovus 时序优化流程
+# ============================================
+
+# 时序报告
+reportTiming
+
+# 建立时间优化
+optDesign -postCTS -setup
+
+# 保持时间优化
+optDesign -postCTS -hold
+
+# 后布线优化
+optDesign -postRoute -setup -hold
+
+# 多工艺角
+setAnalysisMode -analysisType onChipVariation
+reportTiming -corners {ss ff tt}
+```
+
+#### 时序收敛决策树
+
+```
+时序违例
+    │
+    ├── 建立时间违例 (Setup Violation)
+    │       │
+    │       ├── 组合逻辑延迟太大？
+    │       │       ├── 是 → 流水线分割
+    │       │       └── 否 → 继续分析
+    │       │
+    │       ├── 驱动不足？
+    │       │       ├── 是 → 增加驱动
+    │       │       └── 否 → 继续分析
+    │       │
+    │       ├── 线长太长？
+    │       │       ├── 是 → 重新摆放
+    │       │       └── 否 → 有用偏斜
+    │       │
+    │       └── 高扇出？
+    │               └── 是 → 复制寄存器
+    │
+    └── 保持时间违例 (Hold Violation)
+            │
+            ├── 路径太快？
+            │       ├── 是 → 插入延迟单元
+            │       └── 否 → 继续分析
+            │
+            ├── 时钟偏斜问题？
+            │       ├── 是 → 调整有用偏斜
+            │       └── 否 → 增加线长
+            │
+            └── 驱动过大？
+                    └── 是 → 减小驱动
+```
 
 ---
 

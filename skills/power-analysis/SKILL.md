@@ -72,23 +72,84 @@ P_static = I_leakage × Vdd
 **PrimeTime-PX 示例：**
 
 ```tcl
-# 读入设计和库
+# ============================================
+# PrimeTime-PX 功耗分析流程
+# ============================================
+
+# 1. 读入设计和库
 read_verilog design.v
 current_design design_name
 link
 
-# 读入寄生参数
+# 2. 读入寄生参数
 read_parasitics design.spef
 
-# 读入开关活动性
-read_vcd activity.vcd
+# 3. 读入开关活动性
+read_vcd activity.vcd -strip_path testbench.dut
+# 或使用 SAIF 文件
+read_saif activity.saif
 
-# 计算功耗
+# 4. 设置工作条件
+set_operating_conditions -library slow_lib slow
+
+# 5. 计算功耗
 update_power
 
-# 生成报告
+# 6. 生成报告
 report_power -hierarchy > power_report.rpt
 report_power -cells > cell_power.rpt
+report_power -nets > net_power.rpt
+
+# 7. 详细分析
+report_power -hierarchy -levels 3 -sort_by total
+```
+
+**Voltus 功耗分析示例：**
+
+```tcl
+# ============================================
+# Voltus 功耗分析流程
+# ============================================
+
+# 1. 读入设计
+read_netlist design.v
+read_physical -def design.def
+read_spef design.spef
+
+# 2. 读入开关活动性
+read_activity_file -format vcd -file activity.vcd
+
+# 3. 设置功耗分析
+set_power_analysis_mode -method static
+
+# 4. 运行功耗分析
+run_power_analysis
+
+# 5. 生成报告
+report_power -out_file power_report.rpt
+report_power -by_hierarchy > power_hierarchy.rpt
+```
+
+**开源工具 OpenSTA 功耗分析：**
+
+```tcl
+# ============================================
+# OpenSTA 功耗分析
+# ============================================
+
+# 读入设计
+read_liberty slow.lib
+read_verilog design.v
+link_design design_name
+
+# 读入寄生参数
+read_spef design.spef
+
+# 读入开关活动性
+read_saif activity.saif
+
+# 功耗报告
+report_power
 ```
 
 ### 2.3 解读功耗报告
@@ -197,6 +258,167 @@ end
 assign gray = binary ^ (binary >> 1);
 ```
 
+### 5.4 低功耗设计模式详细示例
+
+#### 门控时钟（Clock Gating）
+
+```systemverilog
+// ============================================
+// 门控时钟实现
+// ============================================
+
+// 方式 1：使用综合器自动插入的门控单元
+always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        data_reg <= '0;
+    end else if (enable) begin  // 综合器自动插入门控
+        data_reg <= data_in;
+    end
+end
+
+// 方式 2：手动实例化门控单元
+module clock_gating_example (
+    input  wire        clk,
+    input  wire        enable,
+    input  wire [31:0] data_in,
+    output reg  [31:0] data_out
+);
+    wire gated_clk;
+    
+    // 门控单元实例化
+    CLK_GATE_CELL u_clk_gate (
+        .CLK   (clk),
+        .EN    (enable),
+        .GCLK  (gated_clk)
+    );
+    
+    always_ff @(posedge gated_clk or negedge rst_n) begin
+        if (!rst_n) begin
+            data_out <= '0;
+        end else begin
+            data_out <= data_in;
+        end
+    end
+endmodule
+```
+
+#### 电源关断（Power Gating）
+
+```systemverilog
+// ============================================
+// 电源关断设计
+// ============================================
+
+module power_gating_example (
+    input  wire        clk,
+    input  wire        rst_n,
+    input  wire        power_enable,  // 电源使能信号
+    input  wire [31:0] data_in,
+    output wire [31:0] data_out
+);
+    // 电源域隔离信号
+    wire [31:0] isolated_data;
+    
+    // 隔离单元 - 电源关闭时输出固定值
+    ISO_CELL u_iso [31:0] (
+        .DATA_IN (data_in),
+        .ISO_EN  (~power_enable),
+        .DATA_OUT(isolated_data)
+    );
+    
+    // 电源开关单元
+    SWITCH_CELL u_switch (
+        .VDD_IN (VDD_TOP),
+        .VDD_OUT(VDD_BLOCK),
+        .EN     (power_enable)
+    );
+    
+    // 电源域内逻辑
+    // ... 使用 isolated_data 作为输入
+    
+endmodule
+```
+
+#### 多电压域设计
+
+```systemverilog
+// ============================================
+// 多电压域设计示例
+// ============================================
+
+// UPF 定义
+/*
+    create_power_domain TOP
+    create_power_domain HIGH_PERF -domain TOP -elements {cpu}
+    create_power_domain LOW_POWER -domain TOP -elements {peripheral}
+    
+    create_supply_net VDD_HIGH
+    create_supply_net VDD_LOW
+    
+    set_domain_supply_net HIGH_PERF -primary_power_net VDD_HIGH
+    set_domain_supply_net LOW_POWER -primary_power_net VDD_LOW
+    
+    // 电平转换器
+    create_level_shifter LS_HIGH_TO_LOW \
+        -domain HIGH_PERF \
+        -input_supply VDD_HIGH \
+        -output_supply VDD_LOW
+*/
+
+// RTL 设计考虑
+module multi_voltage_design (
+    input  wire        clk_high,
+    input  wire        clk_low,
+    input  wire [31:0] cpu_data,    // 来自高电压域
+    output wire [31:0] peri_data    // 到低电压域
+);
+    // 跨电压域信号需要电平转换器
+    // 综合器会根据 UPF 自动插入
+    
+endmodule
+```
+
+#### 操作数隔离
+
+```systemverilog
+// ============================================
+// 操作数隔离技术
+// ============================================
+
+module operand_isolation (
+    input  wire        clk,
+    input  wire [1:0]  sel,
+    input  wire [31:0] a,
+    input  wire [31:0] b,
+    input  wire [31:0] c,
+    input  wire [31:0] d,
+    output reg  [31:0] result
+);
+    // 不使用操作数隔离 - 所有输入都在翻转
+    // result = (sel == 0) ? a + b : c + d;
+    
+    // 使用操作数隔离 - 只有选中的通路翻转
+    wire [31:0] a_iso, b_iso, c_iso, d_iso;
+    
+    // 隔离逻辑
+    assign a_iso = (sel == 0) ? a : 32'b0;
+    assign b_iso = (sel == 0) ? b : 32'b0;
+    assign c_iso = (sel == 1) ? c : 32'b0;
+    assign d_iso = (sel == 1) ? d : 32'b0;
+    
+    // 或者使用专用的隔离单元
+    // ISO_CELL u_iso_a [31:0] (.DATA_IN(a), .ISO_EN(sel[0]), .DATA_OUT(a_iso));
+    
+    always_ff @(posedge clk) begin
+        case (sel)
+            2'b00: result <= a_iso + b_iso;
+            2'b01: result <= c_iso + d_iso;
+            default: result <= 32'b0;
+        endcase
+    end
+endmodule
+```
+
 ---
 
 ## 步骤 6：物理级功耗优化
@@ -249,6 +471,66 @@ V_used = V_supply - I × R
 | 多层电源 | 降低电阻 |
 | 去耦电容 | 维持电压稳定 |
 
+### 7.5 IR 降分析详细流程
+
+**RedHawk IR 降分析：**
+
+```tcl
+# ============================================
+# RedHawk IR 降分析流程
+# ============================================
+
+# 1. 设置设计
+load_design design.gds
+
+# 2. 加载库文件
+load_techfile tech.tf
+load_lef tech.lef
+load_lib .lib
+
+# 3. 加载电源网络
+load_def design.def
+load_spef design.spef
+
+# 4. 设置功耗源
+set_power_source -file power_sources.pwr
+
+# 5. 运行 IR 降分析
+run_ir_drop_analysis
+
+# 6. 生成报告
+report_ir_drop -out_file ir_drop.rpt
+report_ir_drop -threshold 0.05  # 报告超过 5% 的 IR 降
+
+# 7. 可视化
+plot_ir_drop_map
+```
+
+**Voltus IR 降分析：**
+
+```tcl
+# ============================================
+# Voltus IR 降分析流程
+# ============================================
+
+# 1. 设置分析模式
+set_power_analysis_mode -method static -analysis_view typical
+
+# 2. 配置电源网格
+set_power_grid -net VDD -layer M8 -width 2.0 -pitch 50
+set_power_grid -net VSS -layer M8 -width 2.0 -pitch 50
+
+# 3. 运行 IR 降分析
+run_static_ir_drop
+
+# 4. 生成报告
+report_static_ir_drop -out_file ir_drop.rpt
+report_static_ir_drop -threshold 5.0  # 5% 阈值
+
+# 5. 热点分析
+identify_ir_hotspots
+```
+
 ---
 
 ## 步骤 8：电迁移分析
@@ -271,6 +553,83 @@ V_used = V_supply - I × R
 | 并联多根线 | 分散电流 |
 | 使用上层金属 | 更厚，允许更大电流 |
 | 过孔并联 | 分散电流 |
+
+### 8.4 电迁移分析详细流程
+
+**RedHawk 电迁移分析：**
+
+```tcl
+# ============================================
+# RedHawk 电迁移分析流程
+# ============================================
+
+# 1. 设置电迁移规则
+load_em_rules em_rules.txt
+
+# 2. 运行电迁移分析
+run_em_analysis
+
+# 3. 生成报告
+report_em_violations -out_file em_report.rpt
+
+# 4. 热点定位
+identify_em_hotspots
+
+# 5. 详细报告
+report_em_details -net VDD -out_file vdd_em.rpt
+report_em_details -net VSS -out_file vss_em.rpt
+```
+
+**Voltus 电迁移分析：**
+
+```tcl
+# ============================================
+# Voltus 电迁移分析流程
+# ============================================
+
+# 1. 设置分析模式
+set_power_analysis_mode -method static
+
+# 2. 加载电迁移规则
+load_em_rules em_rules.cmd
+
+# 3. 运行电迁移分析
+run_em_analysis
+
+# 4. 生成报告
+report_em_violations -out_file em_report.rpt
+
+# 5. 按严重程度排序
+report_em_violations -sort_by severity -threshold 1.0
+```
+
+### 8.5 电迁移违规修复策略
+
+```tcl
+# ============================================
+# 电迁移修复示例
+# ============================================
+
+# 1. 增加线宽
+# 找到违规网络
+set em_violations [get_em_violations -threshold 1.0]
+foreach violation $em_violations {
+    set net_name [get_attribute $violation net_name]
+    set wire_width [get_attribute $violation wire_width]
+    set required_width [get_attribute $violation required_width]
+    
+    # 增加线宽
+    change_wire_width -net $net_name -width $required_width
+}
+
+# 2. 增加过孔
+# 对于过孔电迁移违规
+add_via_array -net VDD -rows 2 -columns 2
+
+# 3. 添加去耦电容
+# 同时帮助 IR 降和电迁移
+add_decoupling_capacitor -location {x y} -cap_value 10pF
+```
 
 ---
 
