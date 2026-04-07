@@ -704,3 +704,209 @@ set_output_delay -min 0.5 -clock clk [get_ports data_out]
 - 使用 `timing-engineer` 代理进行时序分析和优化
 - 时序修复后重新运行物理验证
 - 配合 `power-engineer` 进行功耗时序权衡
+
+---
+
+## 步骤 0：时序约束准备
+
+### 0.1 时钟定义
+
+**基础时钟定义：**
+
+```tcl
+# 主时钟
+create_clock -name clk -period 10 [get_ports clk]
+
+# 多个主时钟
+create_clock -name clk_sys -period 5 [get_ports clk_sys]
+create_clock -name clk_ddr -period 2.5 [get_ports clk_ddr]
+
+# 虚拟时钟（用于 I/O 约束）
+create_clock -name virt_clk -period 10
+```
+
+**派生时钟定义：**
+
+```tcl
+# 分频时钟
+create_generated_clock -name clk_div2 \
+                       -source [get_pins pll/clk_out] \
+                       -divide_by 2 \
+                       [get_pins div/clk_out]
+
+# 倍频时钟
+create_generated_clock -name clk_mul2 \
+                       -source [get_pins pll/clk_out] \
+                       -multiply_by 2 \
+                       [get_pins pll/clk_mul]
+
+# 门控时钟（不要创建为派生时钟）
+# 门控时钟输出自动继承源时钟
+```
+
+### 0.2 时钟属性设置
+
+```tcl
+# 时钟不确定性
+set_clock_uncertainty -setup 0.2 [get_clocks clk]
+set_clock_uncertainty -hold 0.1 [get_clocks clk]
+
+# 时钟延迟
+set_clock_latency -max 0.5 [get_clocks clk]
+set_clock_latency -min 0.3 [get_clocks clk]
+
+# 时钟转换时间
+set_clock_transition 0.1 [get_clocks clk]
+
+# 时钟理想网络（CTS 前）
+set_ideal_network [get_ports clk]
+set_ideal_network [get_nets clk_net]
+
+# 时钟传播（CTS 后）
+set_propagated_clock [get_clocks clk]
+```
+
+### 0.3 输入输出延迟
+
+```tcl
+# 输入延迟
+set_input_delay -max 2.0 -clock clk [all_inputs]
+set_input_delay -min 0.5 -clock clk [all_inputs]
+
+# 特定端口的输入延迟
+set_input_delay -max 1.5 -clock clk [get_ports data_in]
+set_input_delay -min 0.3 -clock clk [get_ports data_in]
+
+# 输出延迟
+set_output_delay -max 2.0 -clock clk [all_outputs]
+set_output_delay -min 0.5 -clock clk [all_outputs]
+
+# 相对于虚拟时钟的延迟
+set_input_delay -max 2.0 -clock virt_clk [get_ports data_in]
+```
+
+### 0.4 异步时钟域处理
+
+```tcl
+# 方法1：设置异步时钟组
+set_clock_groups -asynchronous \
+                 -group [get_clocks clk_sys] \
+                 -group [get_clocks clk_ddr] \
+                 -group [get_clocks clk_peri]
+
+# 方法2：设置假路径
+set_false_path -from [get_clocks clk_sys] -to [get_clocks clk_ddr]
+set_false_path -from [get_clocks clk_ddr] -to [get_clocks clk_sys]
+
+# 异步复位
+set_false_path -from [get_ports rst_n]
+```
+
+### 0.5 多周期路径
+
+```tcl
+# 2 周期路径
+set_multicycle_path 2 -setup -from [get_pins reg1/Q] -to [get_pins reg2/D]
+set_multicycle_path 1 -hold -from [get_pins reg1/Q] -to [get_pins reg2/D]
+
+# 路径组
+set_multicycle_path 2 -setup -from [get_clocks clk_fast] -to [get_clocks clk_slow]
+```
+
+### 0.6 约束检查清单
+
+```tcl
+# 检查所有时钟已定义
+report_clock
+
+# 检查未定义时钟的端口
+report_port -direction in -verbose
+
+# 检查输入输出延迟
+report_port -delay
+
+# 检查假路径
+report_false_path
+
+# 检查多周期路径
+report_multicycle_path
+
+# 检查约束完整性
+check_timing
+```
+
+---
+
+## 时序收敛迭代策略
+
+### 迭代决策树
+
+```
+时序分析结果
+    │
+    ├── WNS < -500ps？
+    │       ├── 是 → 严重问题
+    │       │       ├── 逻辑级数 > 15？ → RTL重构/流水线
+    │       │       ├── 扇出 > 32？ → 复制寄存器
+    │       │       └── 线长异常？ → 重新布局
+    │       └── 否 → 中等问题
+    │               ├── 拥塞热点？ → 优化布局
+    │               └── CTS 问题？ → 重做 CTS
+    │
+    ├── WNS -100ps ~ 0？
+    │       └── 接近收敛
+    │               ├── 有用偏斜
+    │               └── 小规模优化
+    │
+    └── WNS ≥ 0？
+            └── 检查所有工艺角
+                    ├── SS 违例？ → 建立时间修复
+                    ├── FF 违例？ → 保持时间修复
+                    └── 全部满足 → 签收
+```
+
+### 迭代次数参考
+
+| WNS 范围 | 预期迭代次数 | 建议策略 |
+|----------|--------------|----------|
+| < -1ns | 5-10 次 | 重新评估设计 |
+| -1ns ~ -500ps | 3-5 次 | 结构优化 |
+| -500ps ~ -100ps | 2-3 次 | 局部优化 |
+| -100ps ~ 0 | 1-2 次 | 微调优化 |
+
+### 收敛检查点
+
+| 阶段 | 检查项 | 标准 |
+|------|--------|------|
+| 综合后 | WNS < -200ps | 继续优化 |
+| Placement 后 | WNS < -100ps | 继续优化 |
+| CTS 后 | WNS < -50ps | 继续优化 |
+| Route 后 | WNS ≥ 0 | 签收 |
+| Signoff | 所有角 WNS ≥ 0 | 流片 |
+
+---
+
+## 时序回归追踪
+
+### QoR 指标追踪
+
+```tcl
+# 生成 QoR 报告
+report_qor > qor_report.rpt
+
+# 关键指标
+# - WNS (Setup/Hold)
+# - TNS (Setup/Hold)
+# - NP (违例路径数)
+# - 面积
+# - 功耗
+```
+
+### 追踪表格模板
+
+| 版本 | 日期 | WNS(Setup) | WNS(Hold) | TNS | NP | 修改内容 |
+|------|------|------------|-----------|-----|-----|----------|
+| v1.0 | 01/01 | -500ps | 0 | -5ns | 50 | 初始 |
+| v1.1 | 01/02 | -200ps | 0 | -2ns | 20 | 流水线分割 |
+| v1.2 | 01/03 | -50ps | 0 | -0.5ns | 5 | 优化驱动 |
+| v1.3 | 01/04 | 0 | 0 | 0 | 0 | 有用偏斜 |

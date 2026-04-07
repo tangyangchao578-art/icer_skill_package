@@ -286,155 +286,427 @@ covergroup fifo_cg {
 
 ---
 
-## 第四步：验证环境撰写
+## 步骤 4：验证环境搭建
 
-按模块撰写验证环境。
+验证环境搭建需要按顺序完成：接口 → 事务 → Driver → Monitor → Agent → Env → Test。
 
-### 1. 接口 (interface)
+### 4.1 接口编写
+
+**做什么：** 定义 DUT 与验证环境的连接接口。
+
+**接口编写模板：**
 
 ```systemverilog
-interface fifo_if #(
-  parameter DATA_WIDTH = 32
+interface dut_if #(
+    parameter DATA_WIDTH = 32,
+    parameter ADDR_WIDTH = 32
 )(
-  input wr_clk,
-  input rd_clk,
-  input rst_n
+    input  wire clk,
+    input  wire rst_n
 );
+    // 时钟和复位
+    logic        clk;
+    logic        rst_n;
 
-  logic             wr_en;
-  logic [DATA_WIDTH-1:0] wr_data;
-  logic             rd_en;
-  logic [DATA_WIDTH-1:0] rd_data;
-  logic             empty;
-  logic             full;
+    // 输入信号
+    logic [ADDR_WIDTH-1:0] addr;
+    logic [DATA_WIDTH-1:0] wdata;
+    logic                  wr_en;
+    logic                  rd_en;
 
-  // modport for DUT
-  modport dut (
-    input  wr_clk, rd_clk, rst_n,
-    input  wr_en, wr_data, rd_en,
-    output rd_data, empty, full
-  );
+    // 输出信号
+    logic [DATA_WIDTH-1:0] rdata;
+    logic                  ready;
+    logic                  error;
 
-  // modport for testbench
-  modport tb (
-    output wr_en, wr_data, rd_en,
-    input  rd_data, empty, full
-  );
+    // 时钟块（用于同步）
+    clocking cb @(posedge clk);
+        default input #1ns output #1ns;
+        output addr, wdata, wr_en, rd_en;
+        input  rdata, ready, error;
+    endclocking
+
+    // modport for DUT
+    modport dut (
+        input  clk, rst_n, addr, wdata, wr_en, rd_en,
+        output rdata, ready, error
+    );
+
+    // modport for Driver
+    modport driver (
+        clocking cb,
+        output  rst_n
+    );
+
+    // modport for Monitor
+    modport monitor (
+        clocking cb
+    );
 
 endinterface
 ```
 
-### 2. 事务 (transaction)
+**接口编写检查清单：**
+- [ ] 所有 DUT 信号都已定义
+- [ ] 信号位宽正确
+- [ ] 添加了 clocking block（同步）
+- [ ] 定义了 modport（DUT/Driver/Monitor）
+- [ ] 参数化设计（位宽可配置）
+
+### 4.2 事务编写
+
+**做什么：** 定义验证环境中传递的数据结构。
+
+**事务编写模板：**
 
 ```systemverilog
-class fifo_trans extends uvm_sequence_item;
-  `uvm_object_utils(fifo_trans)
+class dut_trans extends uvm_sequence_item;
+    `uvm_object_utils(dut_trans)
 
-  rand bit [DATA_WIDTH-1:0] data;
-  rand bit             write;
-  rand bit             read;
+    // 随机化字段
+    rand bit [31:0] addr;
+    rand bit [31:0] data;
+    rand bit        wr_en;
+    rand bit        rd_en;
 
-  // 约束：写的时候读可以随机
-  constraint c_write_read {
-    solve write before data;
-  }
+    // 约束
+    constraint c_addr_align {
+        addr[1:0] == 2'b00;  // 4字节对齐
+    }
 
-  function new(string name = "fifo_trans");
-    super.new(name);
-  endfunction
+    constraint c_valid_trans {
+        wr_en != rd_en;  // 读写互斥
+    }
+
+    // 覆盖点
+    covergroup trans_cg;
+        cp_addr: coverpoint addr {
+            bins low  = {[0:32'h0000FFFF]};
+            bins mid  = {[32'h00010000:32'hFFFF0000]};
+            bins high = {[32'hFFFF0001:32'hFFFFFFFF]};
+        }
+        cp_wr: coverpoint wr_en;
+        cp_rd: coverpoint rd_en;
+    endgroup
+
+    function new(string name = "dut_trans");
+        super.new(name);
+        trans_cg = new();
+    endfunction
+
+    function void post_randomize();
+        trans_cg.sample();
+    endfunction
+
+    // 复制、比较、打印方法
+    virtual function void do_copy(uvm_object rhs);
+        dut_trans rhs_;
+        super.do_copy(rhs);
+        $cast(rhs_, rhs);
+        addr  = rhs_.addr;
+        data  = rhs_.data;
+        wr_en = rhs_.wr_en;
+        rd_en = rhs_.rd_en;
+    endfunction
+
+    virtual function bit do_compare(uvm_object rhs, uvm_comparer comparer);
+        dut_trans rhs_;
+        bit same = super.do_compare(rhs, comparer);
+        $cast(rhs_, rhs);
+        same = (addr == rhs_.addr) &&
+               (data == rhs_.data) &&
+               (wr_en == rhs_.wr_en) &&
+               (rd_en == rhs_.rd_en);
+        return same;
+    endfunction
+
+    virtual function string convert2string();
+        return $sformatf("addr=0x%8h, data=0x%8h, wr=%b, rd=%b",
+                         addr, data, wr_en, rd_en);
+    endfunction
 
 endclass
 ```
 
-### 3. Agent
+**事务编写检查清单：**
+- [ ] 所有传输数据字段都已定义
+- [ ] 关键字段添加了随机约束
+- [ ] 添加了功能覆盖点
+- [ ] 实现了 do_copy、do_compare、convert2string
+- [ ] 使用 `uvm_object_utils 注册
+
+### 4.3 Driver 编写
+
+**做什么：** 将事务转换为 DUT 接口信号。
+
+**Driver 编写模板：**
 
 ```systemverilog
-class fifo_agent extends uvm_agent;
-  `uvm_component_utils(fifo_agent)
+class dut_driver extends uvm_driver #(dut_trans);
+    `uvm_component_utils(dut_driver)
 
-  fifo_driver    driver;
-  fifo_sequencer sequencer;
-  fifo_monitor   monitor;
-  virtual fifo_if vif;
-  bit is_active = 1;
+    virtual dut_if vif;
 
-  function new(string name, uvm_component parent);
-    super.new(name, parent);
-  endfunction
+    function new(string name, uvm_component parent);
+        super.new(name, parent);
+    endfunction
 
-  virtual function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
-    // get interface from config db
-    if (!uvm_config_db#(virtual fifo_if)::get(this, "", "fifo_vif", vif)) begin
-      `uvm_fatal("build_phase", "Failed to get vif")
-    end
-    if (is_active) begin
-      driver    = fifo_driver::type_id::create("driver", this);
-      sequencer = fifo_sequencer::type_id::create("sequencer", this);
-    end
-    monitor = fifo_monitor::type_id::create("monitor", this);
-  endfunction
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        if (!uvm_config_db#(virtual dut_if)::get(this, "", "vif", vif)) begin
+            `uvm_fatal("build_phase", "Failed to get vif")
+        end
+    endfunction
+
+    virtual task run_phase(uvm_phase phase);
+        forever begin
+            seq_item_port.get_next_item(req);
+            drive_trans(req);
+            seq_item_port.item_done();
+        end
+    endtask
+
+    virtual task drive_trans(dut_trans trans);
+        // 等待时钟沿
+        @(vif.cb);
+
+        // 驱动信号
+        vif.cb.addr  <= trans.addr;
+        vif.cb.data  <= trans.data;
+        vif.cb.wr_en <= trans.wr_en;
+        vif.cb.rd_en <= trans.rd_en;
+
+        // 等待响应
+        wait(vif.cb.ready);
+
+        `uvm_info("drive_trans", trans.convert2string(), UVM_HIGH)
+    endtask
 
 endclass
 ```
 
-### 4. Environment
+**Driver 编写检查清单：**
+- [ ] 从 config_db 获取 virtual interface
+- [ ] 实现 run_phase 的 forever 循环
+- [ ] 使用 seq_item_port 与 sequencer 通信
+- [ ] 正确使用 clocking block 同步
+- [ ] 添加日志信息（UVM_HIGH 级别）
+
+### 4.4 Monitor 编写
+
+**做什么：** 观察接口信号，转换为事务。
+
+**Monitor 编写模板：**
 
 ```systemverilog
-class fifo_env extends uvm_env;
-  `uvm_component_utils(fifo_env)
+class dut_monitor extends uvm_monitor;
+    `uvm_component_utils(dut_monitor)
 
-  fifo_agent agent;
-  fifo_scoreboard scoreboard;
-  fifo_coverage coverage;
+    virtual dut_if vif;
+    uvm_analysis_port #(dut_trans) ap;
 
-  function new(string name, uvm_component parent);
-    super.new(name, parent);
-  endfunction
+    function new(string name, uvm_component parent);
+        super.new(name, parent);
+        ap = new("ap", this);
+    endfunction
 
-  virtual function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
-    agent = fifo_agent::type_id::create("agent", this);
-    scoreboard = fifo_scoreboard::type_id::create("scoreboard", this);
-    coverage = fifo_coverage::type_id::create("coverage", this);
-  endfunction
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        if (!uvm_config_db#(virtual dut_if)::get(this, "", "vif", vif)) begin
+            `uvm_fatal("build_phase", "Failed to get vif")
+        end
+    endfunction
 
-  virtual function void connect_phase(uvm_phase phase);
-    agent.monitor.ap.connect(scoreboard.analysis_export);
-    agent.monitor.ap.connect(coverage.analysis_export);
-  endfunction
+    virtual task run_phase(uvm_phase phase);
+        forever begin
+            collect_trans();
+        end
+    endtask
+
+    virtual task collect_trans();
+        dut_trans trans;
+
+        // 等待有效信号
+        wait(vif.cb.ready);
+
+        // 采样信号
+        trans = dut_trans::type_id::create("trans");
+        trans.addr  = vif.cb.addr;
+        trans.data  = vif.cb.data;
+        trans.wr_en = vif.cb.wr_en;
+        trans.rd_en = vif.cb.rd_en;
+
+        // 发送到 analysis port
+        ap.write(trans);
+
+        `uvm_info("collect_trans", trans.convert2string(), UVM_HIGH)
+    endtask
 
 endclass
 ```
 
-### 5. Test
+**Monitor 编写检查清单：**
+- [ ] 创建 uvm_analysis_port
+- [ ] 正确采样接口信号
+- [ ] 将观察到的事务发送到 analysis port
+- [ ] 不修改 DUT 信号（只观察）
+
+### 4.5 Agent 编写
+
+**做什么：** 封装 Driver、Monitor、Sequencer。
+
+**Agent 编写模板：**
 
 ```systemverilog
-class fifo_base_test extends uvm_test;
-  `uvm_component_utils(fifo_base_test)
+class dut_agent extends uvm_agent;
+    `uvm_component_utils(dut_agent)
 
-  fifo_env env;
+    dut_driver    driver;
+    dut_sequencer sequencer;
+    dut_monitor   monitor;
+    virtual dut_if vif;
 
-  function new(string name, uvm_component parent);
-    super.new(name, parent);
-  endfunction
+    // 配置：ACTIVE 或 PASSIVE
+    uvm_active_passive_enum is_active = UVM_ACTIVE;
 
-  virtual function void build_phase(uvm_phase phase);
-    super.build_phase(phase);
-    env = fifo_env::type_id::create("env", this);
-    // set interface in config db
-    uvm_config_db#(virtual fifo_if)::set(this, "env.agent", "fifo_vif", fifo_vif);
-  endfunction
+    function new(string name, uvm_component parent);
+        super.new(name, parent);
+    endfunction
 
-  virtual task run_phase(uvm_phase phase);
-    fifo_default_seq seq = fifo_default_seq::type_id::create("seq");
-    phase.raise_objection(this);
-    seq.start(env.agent.sequencer);
-    phase.drop_objection(this);
-  endtask
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+
+        // 获取配置
+        if (!uvm_config_db#(virtual dut_if)::get(this, "", "vif", vif)) begin
+            `uvm_fatal("build_phase", "Failed to get vif")
+        end
+
+        // 创建 Monitor（总是创建）
+        monitor = dut_monitor::type_id::create("monitor", this);
+        uvm_config_db#(virtual dut_if)::set(this, "monitor", "vif", vif);
+
+        // 根据 is_active 决定是否创建 Driver 和 Sequencer
+        if (is_active == UVM_ACTIVE) begin
+            driver    = dut_driver::type_id::create("driver", this);
+            sequencer = dut_sequencer::type_id::create("sequencer", this);
+            uvm_config_db#(virtual dut_if)::set(this, "driver", "vif", vif);
+        end
+    endfunction
+
+    virtual function void connect_phase(uvm_phase phase);
+        super.connect_phase(phase);
+        // 连接 Driver 和 Sequencer
+        if (is_active == UVM_ACTIVE) begin
+            driver.seq_item_port.connect(sequencer.seq_item_export);
+        end
+    endfunction
 
 endclass
 ```
+
+**Agent 编写检查清单：**
+- [ ] 支持 ACTIVE/PASSIVE 模式
+- [ ] 正确创建和连接组件
+- [ ] 通过 config_db 传递 interface
+- [ ] Monitor 总是创建
+- [ ] Driver/Sequencer 只在 ACTIVE 模式创建
+
+### 4.6 Environment 编写
+
+**做什么：** 组装所有组件。
+
+**Environment 编写模板：**
+
+```systemverilog
+class dut_env extends uvm_env;
+    `uvm_component_utils(dut_env)
+
+    dut_agent     agent;
+    dut_scoreboard scoreboard;
+    dut_coverage  coverage;
+
+    function new(string name, uvm_component parent);
+        super.new(name, parent);
+    endfunction
+
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+
+        agent     = dut_agent::type_id::create("agent", this);
+        scoreboard = dut_scoreboard::type_id::create("scoreboard", this);
+        coverage  = dut_coverage::type_id::create("coverage", this);
+    endfunction
+
+    virtual function void connect_phase(uvm_phase phase);
+        super.connect_phase(phase);
+
+        // Monitor → Scoreboard
+        agent.monitor.ap.connect(scoreboard.analysis_export);
+
+        // Monitor → Coverage
+        agent.monitor.ap.connect(coverage.analysis_export);
+    endfunction
+
+endclass
+```
+
+**Environment 编写检查清单：**
+- [ ] 创建所有需要的组件
+- [ ] 正确连接 TLM 端口
+- [ ] 通过 config_db 传递配置
+
+### 4.7 Test 编写
+
+**做什么：** 定义测试场景，配置验证环境。
+
+**Test 编写模板：**
+
+```systemverilog
+class dut_base_test extends uvm_test;
+    `uvm_component_utils(dut_base_test)
+
+    dut_env env;
+
+    function new(string name, uvm_component parent);
+        super.new(name, parent);
+    endfunction
+
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        env = dut_env::type_id::create("env", this);
+
+        // 配置
+        uvm_config_db#(uvm_active_passive_enum)::set(
+            this, "env.agent", "is_active", UVM_ACTIVE
+        );
+    endfunction
+
+    virtual function void end_of_elaboration_phase(uvm_phase phase);
+        super.end_of_elaboration_phase(phase);
+        // 打印拓扑
+        uvm_top.print_topology();
+    endfunction
+
+    virtual task run_phase(uvm_phase phase);
+        dut_default_seq seq;
+
+        phase.raise_objection(this, "Starting test");
+
+        seq = dut_default_seq::type_id::create("seq");
+        seq.start(env.agent.sequencer);
+
+        phase.drop_objection(this, "Test finished");
+    endtask
+
+endclass
+```
+
+**Test 编写检查清单：**
+- [ ] 创建 environment
+- [ ] 配置所有组件
+- [ ] 在 run_phase 中启动 sequence
+- [ ] 正确使用 objection
+- [ ] 打印拓扑验证连接
 
 ---
 
@@ -550,16 +822,238 @@ end
 
 ---
 
-## 验证收敛标准
+## 步骤 6：验证环境调试
 
-验证完成条件（**全部满足**才算完成）：
+验证环境搭建完成后，需要进行调试确保正确性。
 
-- [ ] 所有计划的测试点都已执行
-- [ ] 所有测试用例都通过
-- [ ] 代码覆盖率达到目标
+### 6.1 编译调试
+
+**常见编译错误：**
+
+| 错误类型 | 原因 | 解决方法 |
+|----------|------|----------|
+| 未定义类型 | 缺少 `include` | 添加 ``include "file.sv"` |
+| 工厂注册缺失 | 缺少 `uvm_object_utils` | 添加工厂注册宏 |
+| 端口不匹配 | TLM 端口类型错误 | 检查 `uvm_analysis_port` vs `uvm_analysis_export` |
+| 参数不匹配 | 参数化类型错误 | 检查 `#(TRANS)` 参数 |
+
+### 6.2 连接调试
+
+**检查连接正确性：**
+
+```systemverilog
+// 在 end_of_elaboration_phase 打印拓扑
+virtual function void end_of_elaboration_phase(uvm_phase phase);
+    super.end_of_elaboration_phase(phase);
+    uvm_top.print_topology();
+endfunction
+```
+
+**检查项：**
+- [ ] 所有组件都创建成功
+- [ ] 所有 TLM 端口都连接
+- [ ] config_db 传递正确
+- [ ] virtual interface 获取成功
+
+### 6.3 功能调试
+
+**调试方法：**
+
+1. **使用 UVM 日志**
+
+```systemverilog
+// 设置日志级别
+set_report_verbosity_level_hier(UVM_HIGH);
+
+// 设置特定组件日志
+env.agent.driver.set_report_verbosity_level(UVM_DEBUG);
+```
+
+2. **使用波形调试**
+
+```tcl
+# VCS
+fsdbDumpfile("wave.fsdb");
+fsdbDumpvars(0, tb_top);
+
+# Xcelium
+probe -create tb_top -depth all
+```
+
+3. **检查 Objection**
+
+```systemverilog
+// 检查 objection 状态
+virtual function void phase_ready_to_end(uvm_phase phase);
+    if (phase.get_name() == "run") begin
+        `uvm_info("objection", "Run phase ending", UVM_LOW)
+    end
+endfunction
+```
+
+### 6.4 常见问题诊断
+
+| 问题现象 | 可能原因 | 诊断方法 | 解决方法 |
+|----------|----------|----------|----------|
+| 仿真立即结束 | Objection 未 raise | 检查 run_phase | 添加 `phase.raise_objection` |
+| 仿真挂起 | Objection 未 drop | 检查 objection 计数 | 确保 `drop_objection` 被调用 |
+| 无激励产生 | Sequence 未启动 | 检查 sequencer 连接 | 检查 `seq.start(env.agent.sequencer)` |
+| 数据不正确 | Monitor 采样时机错误 | 查看波形 | 使用 clocking block |
+| 覆盖率不更新 | 覆盖点未 sample | 检查 sample 调用 | 添加 `trans_cg.sample()` |
+
+---
+
+## 步骤 7：回归测试
+
+### 7.1 回归测试策略
+
+| 回归类型 | 测试用例数 | 运行频率 | 预期时间 |
+|----------|------------|----------|----------|
+| Smoke 测试 | 10-50 | 每次提交 | < 10 分钟 |
+| Nightly 测试 | 100-500 | 每晚 | 1-4 小时 |
+| 完整回归 | 500-2000 | 每周 | 4-24 小时 |
+| Tapeout 测试 | > 2000 | 流片前 | > 24 小时 |
+
+### 7.2 测试用例管理
+
+**测试用例分类：**
+
+```systemverilog
+// 使用 UVM test 进行分类
+class smoke_test extends dut_base_test;
+    // 快速冒烟测试
+endclass
+
+class feature_test extends dut_base_test;
+    // 功能测试
+endclass
+
+class regression_test extends dut_base_test;
+    // 回归测试
+endclass
+
+class stress_test extends dut_base_test;
+    // 压力测试
+endclass
+```
+
+**运行命令：**
+
+```bash
+# VCS
+vcs -sverilog -ntb_opts uvm \
+    +UVM_TESTNAME=smoke_test \
+    +UVM_VERBOSITY=UVM_HIGH \
+    -l run.log
+
+# Xcelium
+xrun -sv -uvm \
+    +UVM_TESTNAME=feature_test \
+    +UVM_VERBOSITY=UVM_MEDIUM \
+    -log run.log
+```
+
+### 7.3 覆盖率合并
+
+**合并多个测试的覆盖率：**
+
+```tcl
+# VCS
+urg -dir simv.vdb -dir test1.vdb -dir test2.vdb \
+    -report coverage_report
+
+# Xcelium
+imc -exec coverage_merge.tcl
+```
+
+**覆盖率合并脚本示例：**
+
+```tcl
+# coverage_merge.tcl
+open_database test1.ucd
+merge_database test2.ucd test3.ucd test4.ucd
+report_coverage -totals -by_instance
+exit
+```
+
+---
+
+## 步骤 8：验证收敛判断
+
+### 8.1 收敛标准
+
+验证完成条件（**全部满足**才算收敛）：
+
+| 检查项 | 标准 | 当前状态 |
+|--------|------|----------|
+| 所有测试用例通过 | 100% | [ ] |
+| 行覆盖率 | ≥ 95% | [ ] |
+| 条件覆盖率 | ≥ 90% | [ ] |
+| 翻转覆盖率 | ≥ 85% | [ ] |
+| FSM 覆盖率 | 100% | [ ] |
+| 功能覆盖率 | 100% | [ ] |
+| 所有 Bug 已修复 | 无 open Bug | [ ] |
+| 回归测试稳定 | 连续 3 天无新 Bug | [ ] |
+
+### 8.2 覆盖率分析
+
+**覆盖率缺口分析：**
+
+```
+1. 运行所有测试用例
+2. 合并覆盖率报告
+3. 识别未覆盖代码/功能
+4. 分析原因
+5. 添加测试用例覆盖缺口
+```
+
+**覆盖率缺口原因分析：**
+
+| 缺口类型 | 可能原因 | 解决方法 |
+|----------|----------|----------|
+| 死代码 | 不可达代码 | 检查 RTL，可能删除 |
+| 边界条件 | 测试用例未覆盖 | 添加边界测试 |
+| 异常路径 | 约束过紧 | 放宽约束 |
+| 功能遗漏 | 测试计划不完整 | 补充测试计划 |
+
+### 8.3 Bug 趋势追踪
+
+**Bug 趋势指标：**
+
+| 指标 | 定义 | 收敛标准 |
+|------|------|----------|
+| Bug 发现率 | 每周新发现 Bug 数 | 持续下降 |
+| Bug 修复率 | 已修复 Bug / 总 Bug | > 95% |
+| Bug 重开率 | 重开 Bug / 已修复 Bug | < 5% |
+| Bug 密度 | Bug 数 / KLOC | < 0.1 |
+
+**Bug 趋势图：**
+
+```
+Bug 数量
+    ^
+    |     新发现 Bug
+    |        *
+    |      *   *
+    |    *       *
+    |  *           *    ← 期望趋势
+    |*               *
+    +-------------------> 时间
+```
+
+### 8.4 验证签收清单
+
+**签收前检查：**
+
+- [ ] 所有测试用例通过
+- [ ] 覆盖率达标
 - [ ] 功能覆盖率 100%
-- [ ] 所有断言都没有失败
-- [ ] 所有 open issue 都已分析处理
+- [ ] 所有断言通过
+- [ ] 无 open Bug
+- [ ] 回归测试稳定
+- [ ] 验证报告完成
+- [ ] 代码审查通过
+- [ ] 文档更新完成
 
 ---
 
