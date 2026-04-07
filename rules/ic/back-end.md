@@ -142,4 +142,3 @@
 
 - 使用 `physical-design` 技能获取物理设计指导
 - 使用 `timing-analysis` 技能获取时序分析指导
-- 使用 `drc-lvi-debug` 技能获取 DRC/LVS 调试指导

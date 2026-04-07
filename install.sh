@@ -252,7 +252,7 @@ uninstall() {
         for skill in architecture-design rtl-coding systemverilog uvvm-verification \
                      assertion-based-verification physical-design timing-analysis \
                      power-analysis functional-safety-analysis board-bringup \
-                     eda-scripting drc-lvs-debug; do
+                     eda-scripting; do
             if [ -d "$CLAUDE_HOME/skills/$skill" ]; then
                 rm -rf "$CLAUDE_HOME/skills/$skill"
             fi
@@ -266,7 +266,7 @@ uninstall() {
         for agent in chip-architect rtl-designer verification-engineer \
                      physical-design-engineer timing-engineer power-engineer \
                      functional-safety-engineer validation-engineer \
-                     drc-engineer eda-automation-engineer; do
+                     eda-automation-engineer; do
             if [ -d "$CLAUDE_HOME/agents/$agent" ]; then
                 rm -rf "$CLAUDE_HOME/agents/$agent"
             fi
@@ -316,10 +316,10 @@ verify() {
     # 检查技能
     if [ -d "$CLAUDE_HOME/skills" ]; then
         SKILL_COUNT=$(find "$CLAUDE_HOME/skills" -name "SKILL.md" | wc -l)
-        if [ "$SKILL_COUNT" -ge 12 ]; then
+        if [ "$SKILL_COUNT" -ge 11 ]; then
             echo -e "${GREEN}✓ 技能已安装 ($SKILL_COUNT 个)${NC}"
         else
-            echo -e "${YELLOW}⚠ 技能安装不完整 ($SKILL_COUNT 个，期望 12 个)${NC}"
+            echo -e "${YELLOW}⚠ 技能安装不完整 ($SKILL_COUNT 个，期望 11 个)${NC}"
         fi
     else
         echo -e "${RED}✗ 技能未安装${NC}"
@@ -329,10 +329,10 @@ verify() {
     # 检查代理
     if [ -d "$CLAUDE_HOME/agents" ]; then
         AGENT_COUNT=$(find "$CLAUDE_HOME/agents" -name "AGENT.md" | wc -l)
-        if [ "$AGENT_COUNT" -ge 10 ]; then
+        if [ "$AGENT_COUNT" -ge 9 ]; then
             echo -e "${GREEN}✓ 代理已安装 ($AGENT_COUNT 个)${NC}"
         else
-            echo -e "${YELLOW}⚠ 代理安装不完整 ($AGENT_COUNT 个，期望 10 个)${NC}"
+            echo -e "${YELLOW}⚠ 代理安装不完整 ($AGENT_COUNT 个，期望 9 个)${NC}"
         fi
     else
         echo -e "${RED}✗ 代理未安装${NC}"

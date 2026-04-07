@@ -121,7 +121,6 @@
 ## 代理使用
 
 - 后端实现：使用 **physical-design-engineer** 代理
-- DRC/LVS 调试：使用 **drc-lvi-debug** 技能
 - 时序分析：使用 **timing-analysis** 技能
 
 ## 最终出带要求

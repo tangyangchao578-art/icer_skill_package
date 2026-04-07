@@ -16,10 +16,9 @@
 
 | 代理 | 用途 | 对应技能 |
 |-------|---------|----------|
-| physical-design-engineer | 物理设计、布局布线 | physical-design |
+| physical-design-engineer | 物理设计、布局布线、物理验证 | physical-design |
 | timing-engineer | 时序分析、收敛优化 | timing-analysis |
 | power-engineer | 功耗分析、IR降分析 | power-analysis |
-| drc-engineer | DRC/LVS 调试修复 | drc-lvs-debug |
 
 ### 验证与安全代理
 
@@ -47,7 +46,6 @@
 4. **物理设计** - 使用 **physical-design-engineer** 代理
 5. **时序收敛** - 使用 **timing-engineer** 代理
 6. **功耗分析** - 使用 **power-engineer** 代理
-7. **DRC/LVS 调试** - 使用 **drc-engineer** 代理
 
 ### 验证与安全任务
 8. **功能安全分析** - 使用 **functional-safety-engineer** 代理
@@ -63,7 +61,7 @@
 chip-architect → rtl-designer → verification-engineer
 
 后端流程：
-physical-design-engineer → timing-engineer → power-engineer → drc-engineer
+physical-design-engineer → timing-engineer → power-engineer
 
 验证与安全：
 functional-safety-engineer (贯穿全流程)
@@ -106,7 +104,6 @@ eda-automation-engineer (全流程自动化)
 | 布局布线 | physical-design-engineer |
 | 时序违例修复 | timing-engineer |
 | 功耗分析优化 | power-engineer |
-| DRC/LVS 问题 | drc-engineer |
 | 功能安全分析 | functional-safety-engineer |
 | 板级调试 | validation-engineer |
 | 流程自动化脚本 | eda-automation-engineer |

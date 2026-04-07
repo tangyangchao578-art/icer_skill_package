@@ -55,7 +55,6 @@ cd icer_skill_package
 | functional-safety-analysis | 8 步 | ISO 26262、FMEDA、ASIL等级 |
 | board-bringup | 6 步 | 静态→上电→时钟→配置→模块→系统 |
 | eda-scripting | TCL/Python/Makefile | 流程脚本最佳实践 |
-| drc-lvs-debug | DRC/LVS/ERC | 调试步骤、Waiver模板 |
 | architecture-design | 10 步 | 需求→接口→模块→时钟→复位→存储→电源→DFT→评估→文档 |
 
 ## 代理列表
@@ -70,7 +69,6 @@ cd icer_skill_package
 | power-engineer | power-analysis | 功耗分析、IR降、电迁移 |
 | functional-safety-engineer | functional-safety-analysis | 功能安全、FMEDA、安全机制 |
 | validation-engineer | board-bringup | 板级验证、bring-up、调试 |
-| drc-engineer | drc-lvs-debug | DRC/LVS 调试修复 |
 | eda-automation-engineer | eda-scripting | 流程脚本、自动化 |
 
 ## 规则体系
